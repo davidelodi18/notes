@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quaderno — appunti e riunioni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     CONFIGURAZIONE FIREBASE
+     Incolla qui il config del progetto (puoi copiarlo da un'altra
+     tua app: è lo stesso per tutte le web app dello stesso progetto).
+     Finché resta vuoto, l'app salva solo sul dispositivo.
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+window.FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+window.DB_ROOT = "quaderno";   // nodo del Realtime Database
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+
+<style>
+:root{
+  --ink:#17211d;
+  --ink-soft:#41504a;
+  --muted:#7b8a83;
+  --line:#d5dcd7;
+  --line-soft:#e6eae7;
+  --shell:#e9ede9;
+  --paper:#ffffff;
+  --accent:#2f6f4e;
+  --accent-soft:#e4efe8;
+  --amber:#a86a1f;
+  --amber-soft:#f8efe0;
+  --red:#a33c34;
+  --radius:6px;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --serif:'Newsreader',Georgia,'Times New Roman',serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--shell);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+#root{height:100%}
+
+/* ── layout ─────────────────────────────────────────── */
+.app{display:flex;height:100vh;overflow:hidden}
+.col-sections{width:216px;flex:none;background:var(--shell);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.col-list{width:296px;flex:none;background:#f4f6f4;border-right:1px solid var(--line);display:flex;flex-direction:column}
+.col-doc{flex:1;background:var(--paper);overflow-y:auto;position:relative}
+
+.brand{padding:18px 16px 12px;display:flex;align-items:baseline;gap:8px}
+.brand h1{font-family:var(--serif);font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em}
+.brand .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;transform:translateY(-3px)}
+.brand .dot.off{background:var(--muted)}
+
+.nav{padding:0 8px;overflow-y:auto;flex:1}
+.nav-group{margin:6px 0 14px}
+.nav-label{font-size:11px;color:var(--muted);padding:6px 8px;letter-spacing:.02em}
+.nav-item{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  padding:7px 9px;border:0;background:transparent;border-radius:var(--radius);
+  color:var(--ink-soft);margin-bottom:1px;
+}
+.nav-item:hover{background:#dfe5e0}
+.nav-item.on{background:var(--paper);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(23,33,29,.07)}
+.nav-item .chip{width:9px;height:9px;border-radius:2px;flex:none}
+.nav-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-item .n{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.nav-item .edit{opacity:0;font-size:12px;color:var(--muted);padding:0 2px}
+.nav-item:hover .edit{opacity:1}
+.nav-add{display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px;border:1px dashed var(--line);
+  background:transparent;border-radius:var(--radius);color:var(--muted);margin-top:4px}
+.nav-add:hover{border-color:var(--accent);color:var(--accent)}
+.sidebar-foot{padding:10px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sidebar-foot button{border:0;background:none;color:var(--muted);text-decoration:underline;padding:0}
+
+/* ── lista documenti ────────────────────────────────── */
+.list-head{padding:14px 14px 10px;border-bottom:1px solid var(--line-soft)}
+.list-head h2{font-family:var(--serif);font-size:18px;margin:0 0 3px;font-weight:600}
+.list-head p{margin:0;font-size:12px;color:var(--muted)}
+.search{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--paper);margin-top:10px;outline:none}
+.search:focus{border-color:var(--accent)}
+.new-row{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
+.btn{border:1px solid var(--line);background:var(--paper);padding:6px 11px;border-radius:var(--radius);color:var(--ink-soft)}
+.btn:hover{border-color:var(--ink-soft);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#255840;border-color:#255840;color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost:hover{background:var(--line-soft);color:var(--ink)}
+.btn.danger:hover{border-color:var(--red);color:var(--red)}
+.btn.sm{padding:4px 8px;font-size:12.5px}
+.list{flex:1;overflow-y:auto;padding:6px}
+.card{
+  display:block;width:100%;text-align:left;border:1px solid transparent;background:transparent;
+  padding:10px 11px;border-radius:var(--radius);margin-bottom:2px;color:inherit;
+}
+.card:hover{background:#eaefeb}
+.card.on{background:var(--paper);border-color:var(--line);box-shadow:0 1px 3px rgba(23,33,29,.08)}
+.card .t{font-weight:500;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .m{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.tag{font-size:11px;padding:1px 6px;border-radius:20px;border:1px solid var(--line)}
+.tag.meet{background:var(--accent-soft);border-color:#c9ded2;color:#255840}
+.tag.todo{background:var(--amber-soft);border-color:#ecd9b8;color:var(--amber)}
+.empty{padding:30px 18px;color:var(--muted);text-align:center;font-size:13px}
+.empty strong{display:block;color:var(--ink-soft);font-weight:500;margin-bottom:4px}
+
+/* ── documento ──────────────────────────────────────── */
+.doc-bar{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line-soft);padding:9px 28px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.doc-bar .spacer{flex:1}
+.saved{font-size:12px;color:var(--muted);min-width:74px}
+.doc{max-width:760px;margin:0 auto;padding:26px 28px 100px}
+.title-in{width:100%;border:0;outline:none;font-family:var(--serif);font-size:32px;font-weight:600;
+  letter-spacing:-.015em;padding:0;margin:0 0 6px;line-height:1.2}
+.title-in::placeholder{color:#c3ccc7}
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;
+  padding:14px 0 16px;border-bottom:1px solid var(--line-soft);margin-bottom:20px}
+.f label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:3px}
+.f input,.f select,.f textarea{width:100%;border:1px solid var(--line-soft);border-radius:var(--radius);
+  padding:6px 8px;outline:none;background:#fbfcfb}
+.f input:focus,.f select:focus,.f textarea:focus{border-color:var(--accent);background:#fff}
+.sec-h{display:flex;align-items:center;gap:10px;margin:26px 0 10px}
+.sec-h h3{font-family:var(--serif);font-size:19px;font-weight:600;margin:0}
+.sec-h .rule{flex:1;height:1px;background:var(--line-soft)}
+.row{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.row:last-of-type{border-bottom:0}
+.row .num{font-family:var(--serif);color:var(--muted);width:20px;flex:none;padding-top:6px;font-variant-numeric:tabular-nums}
+.row .body{flex:1;min-width:0}
+.row input.line{width:100%;border:0;border-bottom:1px solid transparent;background:transparent;padding:5px 2px;outline:none}
+.row input.line:focus{border-bottom-color:var(--accent)}
+.row textarea.line{width:100%;border:0;background:transparent;padding:4px 2px;outline:none;resize:vertical;
+  min-height:38px;color:var(--ink-soft);font-size:13.5px}
+.row .sub{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.row .sub input{border:1px solid var(--line-soft);border-radius:var(--radius);padding:3px 7px;font-size:12.5px;background:#fbfcfb}
+.row .x{border:0;background:none;color:#c3ccc7;padding:6px 4px;line-height:1}
+.row .x:hover{color:var(--red)}
+.row.done .body{opacity:.5;text-decoration:line-through}
+.add-line{border:0;background:none;color:var(--accent);padding:8px 0;text-align:left}
+.add-line:hover{text-decoration:underline}
+.chk{width:16px;height:16px;margin-top:8px;flex:none;accent-color:var(--accent)}
+
+.rt-tools{display:flex;gap:2px;padding:4px 0 8px;border-bottom:1px solid var(--line-soft);margin-bottom:10px;flex-wrap:wrap}
+.rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
+.rt-tools button:hover{background:var(--line-soft);color:var(--ink)}
+.rt{
+  min-height:220px;outline:none;font-family:var(--serif);font-size:17px;line-height:1.65;color:var(--ink);
+}
+.rt:empty:before{content:attr(data-ph);color:#c3ccc7}
+.rt h2{font-size:21px;margin:20px 0 6px}
+.rt h3{font-size:18px;margin:16px 0 4px}
+.rt ul,.rt ol{padding-left:22px;margin:8px 0}
+.rt li{margin:3px 0}
+.rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
+.rt a{color:var(--accent)}
+
+/* ── azioni globali ─────────────────────────────────── */
+.actions-wrap{max-width:820px;margin:0 auto;padding:26px 28px 80px}
+.act{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line-soft)}
+.act .who{font-size:12.5px;color:var(--muted)}
+.act .src{font-size:12px;color:var(--muted)}
+.act .due{font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink-soft)}
+.act .due.late{color:var(--red);font-weight:500}
+.act .due.soon{color:var(--amber)}
+.link-btn{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;font-size:12px}
+
+/* ── modali ─────────────────────────────────────────── */
+.overlay{position:fixed;inset:0;background:rgba(23,33,29,.36);display:flex;align-items:center;
+  justify-content:center;z-index:50;padding:18px}
+.modal{background:var(--paper);border-radius:8px;padding:22px;width:100%;max-width:420px;box-shadow:0 16px 44px rgba(23,33,29,.24)}
+.modal h3{font-family:var(--serif);font-size:20px;margin:0 0 14px;font-weight:600}
+.modal .f{margin-bottom:12px}
+.swatches{display:flex;gap:7px;flex-wrap:wrap}
+.sw{width:26px;height:26px;border-radius:5px;border:2px solid transparent}
+.sw.on{border-color:var(--ink)}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+
+.login{max-width:340px;margin:14vh auto;background:var(--paper);padding:28px;border-radius:8px;border:1px solid var(--line)}
+.login h1{font-family:var(--serif);font-size:26px;margin:0 0 4px}
+.login p{margin:0 0 18px;color:var(--muted);font-size:13px}
+.err{color:var(--red);font-size:12.5px;margin-top:10px}
+
+.mobile-back{display:none}
+@media(max-width:900px){
+  .app{display:block;height:auto;overflow:visible}
+  .col-sections,.col-list,.col-doc{width:auto;border-right:0;height:auto}
+  .col-sections{border-bottom:1px solid var(--line)}
+  .col-list{border-bottom:1px solid var(--line)}
+  .hide-m{display:none!important}
+  .mobile-back{display:inline-block}
+  .doc,.actions-wrap{padding:18px 16px 60px}
+  .doc-bar{padding:8px 14px}
+  .title-in{font-size:26px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useRef,useMemo,useCallback} = React;
+
+/* ═══════════ storage: Firebase se configurato, altrimenti locale ═══════════ */
+const CFG = window.FIREBASE_CONFIG || {};
+const HAS_FB = !!(CFG.apiKey && CFG.databaseURL);
+const ROOT = window.DB_ROOT || 'quaderno';
+let fbApp=null, fbAuth=null, fbDb=null;
+if(HAS_FB){
+  try{ fbApp = firebase.initializeApp(CFG); fbAuth = firebase.auth(); fbDb = firebase.database(); }
+  catch(e){ console.error('Firebase non inizializzato', e); }
+}
+const mem = {};
+const local = {
+  get(k){ try{ const v = localStorage.getItem(k); return v?JSON.parse(v):null; }catch(e){ return mem[k]||null; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){ mem[k]=v; } }
+};
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const nowISO = () => new Date().toISOString();
+const today = () => new Date().toISOString().slice(0,10);
+
+const COLORS = ['#2f6f4e','#2b5d80','#8a4a6b','#a86a1f','#5c5470','#3d7068','#8c4a3f','#4a5d23'];
+
+const TEMPLATES = {
+  vuoto: {label:'Riunione vuota', agenda:[]},
+  reporting: {label:'Reporting mensile', agenda:[
+    'Chiusura del mese: numeri principali',
+    'Scostamenti vs budget — analisi delle cause',
+    'Scostamenti vs anno precedente',
+    'Aggiornamento forecast',
+    'Punti aperti e prossimi passi'
+  ]},
+  budget: {label:'Budget / forecast', agenda:[
+    'Assunzioni di base (volumi, prezzi, cambi)',
+    'Ricavi per canale / mercato',
+    'Costi diretti e marginalità',
+    'Costi di struttura',
+    'Investimenti',
+    'Scenari e sensitività'
+  ]},
+  operativa: {label:'Riunione operativa', agenda:[
+    'Stato avanzamento attività',
+    'Criticità emerse',
+    'Decisioni da prendere',
+    'Assegnazione attività'
+  ]}
+};
+
+/* ═══════════ utilità documento ═══════════ */
+const emptyDoc = (sezioneId, tipo, tpl) => ({
+  id: uid(), sezioneId, tipo,
+  titolo:'',
+  data: tipo==='riunione' ? today() : '',
+  ora:'', luogo:'', partecipanti:'', obiettivo:'',
+  agenda: (tpl && TEMPLATES[tpl] ? TEMPLATES[tpl].agenda : []).map(t=>({id:uid(),titolo:t,note:''})),
+  decisioni: [],
+  azioni: [],
+  corpo:'',
+  stato: tipo==='riunione' ? 'da preparare' : '',
+  creato: nowISO(), aggiornato: nowISO()
+});
+
+const stripHtml = h => (h||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();
+const fmtDate = d => { if(!d) return ''; const [y,m,g]=d.split('-'); return `${g}/${m}/${y}`; };
+const daysTo = d => { if(!d) return null; return Math.round((new Date(d+'T00:00:00') - new Date(today()+'T00:00:00'))/86400000); };
+
+/* ═══════════ generazione HTML per export ═══════════ */
+function docToHtml(doc, sezione){
+  const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let h = '';
+  h += `<p class="kicker">${e(sezione? sezione.nome : '')}</p>`;
+  h += `<h1>${e(doc.titolo)||'Senza titolo'}</h1>`;
+
+  if(doc.tipo==='riunione'){
+    const meta = [];
+    if(doc.data) meta.push(['Data', fmtDate(doc.data) + (doc.ora? ' — '+doc.ora : '')]);
+    if(doc.luogo) meta.push(['Luogo', doc.luogo]);
+    if(doc.partecipanti) meta.push(['Partecipanti', doc.partecipanti]);
+    if(doc.obiettivo) meta.push(['Obiettivo', doc.obiettivo]);
+    if(meta.length){
+      h += '<table class="meta">' + meta.map(([k,v])=>`<tr><td class="k">${e(k)}</td><td>${e(v)}</td></tr>`).join('') + '</table>';
+    }
+    if(doc.agenda && doc.agenda.length){
+      h += '<h2>Ordine del giorno</h2><ol>';
+      doc.agenda.forEach(p=>{
+        h += `<li><strong>${e(p.titolo)}</strong>` + (p.note? `<div class="note">${e(p.note).replace(/\n/g,'<br>')}</div>`:'') + '</li>';
+      });
+      h += '</ol>';
+    }
+    if(doc.corpo && stripHtml(doc.corpo)){
+      h += '<h2>Note</h2><div>'+doc.corpo+'</div>';
+    }
+    if(doc.decisioni && doc.decisioni.length){
+      h += '<h2>Decisioni</h2><ul>' + doc.decisioni.map(d=>`<li>${e(d.testo)}</li>`).join('') + '</ul>';
+    }
+    if(doc.azioni && doc.azioni.length){
+      h += '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
+      h += doc.azioni.map(a=>`<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`).join('');
+      h += '</table>';
+    }
+  } else {
+    if(doc.data || doc.obiettivo){
+      const meta=[];
+      if(doc.data) meta.push(['Data', fmtDate(doc.data)]);
+      if(doc.obiettivo) meta.push(['In sintesi', doc.obiettivo]);
+      h += '<table class="meta">' + meta.map(([k,v])=>`<tr><td class="k">${e(k)}</td><td>${e(v)}</td></tr>`).join('') + '</table>';
+    }
+    h += '<div>'+(doc.corpo||'')+'</div>';
+    if(doc.azioni && doc.azioni.length){
+      h += '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
+      h += doc.azioni.map(a=>`<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`).join('');
+      h += '</table>';
+    }
+  }
+  return h;
+}
+
+const PRINT_CSS = `
+body{font-family:Georgia,'Times New Roman',serif;font-size:11.5pt;line-height:1.5;color:#17211d;margin:0}
+.kicker{font-family:Arial,sans-serif;font-size:9pt;color:#7b8a83;margin:0 0 4pt;letter-spacing:.04em}
+h1{font-size:22pt;margin:0 0 10pt;line-height:1.2}
+h2{font-size:14pt;margin:18pt 0 6pt;border-bottom:1px solid #d5dcd7;padding-bottom:3pt}
+h3{font-size:12.5pt;margin:12pt 0 4pt}
+table.meta{border-collapse:collapse;margin:10pt 0 14pt;width:100%}
+table.meta td{padding:3pt 8pt 3pt 0;vertical-align:top;font-size:10.5pt}
+table.meta td.k{color:#7b8a83;width:110pt;font-family:Arial,sans-serif;font-size:9.5pt}
+table.grid{border-collapse:collapse;width:100%;margin:8pt 0;font-size:10.5pt}
+table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:Arial,sans-serif;font-size:9.5pt}
+table.grid td{padding:5pt 7pt;border:1px solid #d5dcd7;vertical-align:top}
+ol,ul{padding-left:18pt}
+li{margin:4pt 0}
+.note{font-size:10.5pt;color:#41504a;margin:3pt 0 6pt}
+blockquote{border-left:2px solid #2f6f4e;margin:8pt 0;padding-left:10pt;color:#41504a;font-style:italic}
+.doc-sep{page-break-after:always}
+`;
+
+function fullHtml(title, inner){
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PRINT_CSS}</style></head><body>${inner}</body></html>`;
+}
+
+function exportWord(filename, title, inner){
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${title}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>@page{size:A4;margin:2.2cm}${PRINT_CSS}</style></head><body>${inner}</body></html>`;
+  const blob = new Blob(['\ufeff', html], {type:'application/msword'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename.replace(/[^\w\sàèéìòù\-]/gi,'').trim() + '.doc';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();}, 500);
+}
+
+function exportPdf(title, inner){
+  const f = document.createElement('iframe');
+  f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(f);
+  const d = f.contentWindow.document;
+  d.open(); d.write(fullHtml(title, inner)); d.close();
+  setTimeout(()=>{ f.contentWindow.focus(); f.contentWindow.print(); setTimeout(()=>f.remove(), 1200); }, 350);
+}
+
+/* ═══════════ editor rich text ═══════════ */
+function RichText({value, onChange, placeholder, docKey}){
+  const ref = useRef(null);
+  useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
+  const cmd = (c,v)=>{ document.execCommand(c,false,v||null); ref.current.focus(); onChange(ref.current.innerHTML); };
+  return (
+    <div>
+      <div className="rt-tools">
+        <button onClick={()=>cmd('bold')} title="Grassetto"><b>B</b></button>
+        <button onClick={()=>cmd('italic')} title="Corsivo"><i>I</i></button>
+        <button onClick={()=>cmd('underline')} title="Sottolineato"><u>U</u></button>
+        <button onClick={()=>cmd('formatBlock','<h2>')} title="Titolo">T1</button>
+        <button onClick={()=>cmd('formatBlock','<h3>')} title="Sottotitolo">T2</button>
+        <button onClick={()=>cmd('formatBlock','<p>')} title="Testo normale">¶</button>
+        <button onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
+        <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
+        <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
+        <button onClick={()=>cmd('removeFormat')} title="Togli formattazione">✕</button>
+      </div>
+      <div ref={ref} className="rt" contentEditable suppressContentEditableWarning
+        data-ph={placeholder||'Scrivi qui…'}
+        onInput={e=>onChange(e.currentTarget.innerHTML)}
+        onPaste={e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData('text/plain'); document.execCommand('insertText',false,t); }}
+      />
+    </div>
+  );
+}
+
+/* ═══════════ righe modificabili ═══════════ */
+function AgendaRow({p, i, onChange, onRemove}){
+  return (
+    <div className="row">
+      <div className="num">{i+1}</div>
+      <div className="body">
+        <input className="line" value={p.titolo} placeholder="Punto all'ordine del giorno"
+          onChange={e=>onChange({...p,titolo:e.target.value})}/>
+        <textarea className="line" value={p.note} placeholder="Note, dati da portare, domande da fare…"
+          onChange={e=>onChange({...p,note:e.target.value})}/>
+      </div>
+      <button className="x" onClick={onRemove} title="Elimina">✕</button>
+    </div>
+  );
+}
+
+function ActionRow({a, onChange, onRemove}){
+  return (
+    <div className={'row'+(a.fatto?' done':'')}>
+      <input type="checkbox" className="chk" checked={!!a.fatto} onChange={e=>onChange({...a,fatto:e.target.checked})}/>
+      <div className="body">
+        <input className="line" value={a.testo} placeholder="Cosa va fatto"
+          onChange={e=>onChange({...a,testo:e.target.value})}/>
+        <div className="sub">
+          <input value={a.responsabile} placeholder="Responsabile" style={{width:130}}
+            onChange={e=>onChange({...a,responsabile:e.target.value})}/>
+          <input type="date" value={a.scadenza||''} onChange={e=>onChange({...a,scadenza:e.target.value})}/>
+        </div>
+      </div>
+      <button className="x" onClick={onRemove} title="Elimina">✕</button>
+    </div>
+  );
+}
+
+/* ═══════════ modale sezione ═══════════ */
+function SectionModal({sezione, onSave, onDelete, onClose, count}){
+  const [nome,setNome] = useState(sezione?sezione.nome:'');
+  const [descrizione,setDescrizione] = useState(sezione?sezione.descrizione||'':'');
+  const [colore,setColore] = useState(sezione?sezione.colore:COLORS[0]);
+  const nuovo = !sezione;
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
+      <div className="modal">
+        <h3>{nuovo?'Nuova sezione':'Modifica sezione'}</h3>
+        <div className="f">
+          <label>Nome</label>
+          <input autoFocus value={nome} onChange={e=>setNome(e.target.value)} placeholder="Es. Controlling, Budget 2027, Commerciale"
+            onKeyDown={e=>{if(e.key==='Enter'&&nome.trim()) onSave({nome:nome.trim(),descrizione,colore});}}/>
+        </div>
+        <div className="f">
+          <label>Descrizione</label>
+          <input value={descrizione} onChange={e=>setDescrizione(e.target.value)} placeholder="A cosa serve questa sezione"/>
+        </div>
+        <div className="f">
+          <label>Colore</label>
+          <div className="swatches">
+            {COLORS.map(c=>(
+              <button key={c} className={'sw'+(c===colore?' on':'')} style={{background:c}} onClick={()=>setColore(c)}/>
+            ))}
+          </div>
+        </div>
+        <div className="modal-foot">
+          {!nuovo && <button className="btn danger" style={{marginRight:'auto'}}
+            onClick={()=>{ if(confirm(`Eliminare "${sezione.nome}"? I ${count} documenti dentro verranno eliminati.`)) onDelete(); }}>Elimina</button>}
+          <button className="btn" onClick={onClose}>Annulla</button>
+          <button className="btn primary" disabled={!nome.trim()} onClick={()=>onSave({nome:nome.trim(),descrizione,colore})}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ nuovo documento ═══════════ */
+function NewDocModal({onCreate, onClose}){
+  const [tipo,setTipo] = useState('riunione');
+  const [tpl,setTpl] = useState('vuoto');
+  const [titolo,setTitolo] = useState('');
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
+      <div className="modal">
+        <h3>Nuovo documento</h3>
+        <div className="f">
+          <label>Titolo</label>
+          <input autoFocus value={titolo} onChange={e=>setTitolo(e.target.value)}
+            placeholder={tipo==='riunione'?'Es. Riunione chiusura agosto':'Es. Appunti analisi margini'}
+            onKeyDown={e=>{if(e.key==='Enter') onCreate(tipo,tipo==='riunione'?tpl:null,titolo.trim());}}/>
+        </div>
+        <div className="f">
+          <label>Tipo</label>
+          <select value={tipo} onChange={e=>setTipo(e.target.value)}>
+            <option value="riunione">Riunione — agenda, decisioni, attività</option>
+            <option value="nota">Appunto — testo libero</option>
+          </select>
+        </div>
+        {tipo==='riunione' && (
+          <div className="f">
+            <label>Parti da</label>
+            <select value={tpl} onChange={e=>setTpl(e.target.value)}>
+              {Object.entries(TEMPLATES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>Annulla</button>
+          <button className="btn primary" onClick={()=>onCreate(tipo, tipo==='riunione'?tpl:null, titolo.trim())}>Crea</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ login ═══════════ */
+function Login(){
+  const [email,setEmail]=useState(''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
+  const entra = () => {
+    setBusy(true); setErr('');
+    fbAuth.signInWithEmailAndPassword(email.trim(), pw)
+      .catch(e=>{ setErr('Accesso non riuscito. Controlla email e password.'); setBusy(false); });
+  };
+  return (
+    <div className="login">
+      <h1>Quaderno</h1>
+      <p>Appunti e preparazione riunioni</p>
+      <div className="f" style={{marginBottom:10}}>
+        <label>Email</label>
+        <input value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username"/>
+      </div>
+      <div className="f" style={{marginBottom:16}}>
+        <label>Password</label>
+        <input type="password" value={pw} onChange={e=>setPw(e.target.value)} autoComplete="current-password"
+          onKeyDown={e=>{if(e.key==='Enter') entra();}}/>
+      </div>
+      <button className="btn primary" style={{width:'100%'}} disabled={busy} onClick={entra}>
+        {busy?'Accesso in corso…':'Entra'}
+      </button>
+      {err && <div className="err">{err}</div>}
+    </div>
+  );
+}
+
+/* ═══════════ app ═══════════ */
+function App(){
+  const [user,setUser] = useState(HAS_FB? undefined : null);
+  const [sezioni,setSezioni] = useState({});
+  const [documenti,setDocumenti] = useState({});
+  const [pronto,setPronto] = useState(!HAS_FB);
+
+  const [selSez,setSelSez] = useState(null);      // id sezione o 'ATTIVITA'
+  const [selDoc,setSelDoc] = useState(null);
+  const [q,setQ] = useState('');
+  const [modalSez,setModalSez] = useState(null);  // {sezione|null}
+  const [modalNew,setModalNew] = useState(false);
+  const [salvato,setSalvato] = useState('');
+  const [mobileView,setMobileView] = useState('nav'); // nav | doc
+  const [,forceW] = useState(0);
+  useEffect(()=>{ const h=()=>forceW(x=>x+1); window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h); },[]);
+
+  /* auth */
+  useEffect(()=>{
+    if(!HAS_FB) return;
+    return fbAuth.onAuthStateChanged(u=>setUser(u||null));
+  },[]);
+
+  /* caricamento dati */
+  useEffect(()=>{
+    if(HAS_FB){
+      if(!user) return;
+      const rs = fbDb.ref(ROOT+'/sezioni');
+      const rd = fbDb.ref(ROOT+'/documenti');
+      const a = rs.on('value', s=>{ setSezioni(s.val()||{}); setPronto(true); });
+      const b = rd.on('value', s=>setDocumenti(s.val()||{}));
+      return ()=>{ rs.off('value',a); rd.off('value',b); };
+    } else {
+      setSezioni(local.get(ROOT+':sezioni')||{});
+      setDocumenti(local.get(ROOT+':documenti')||{});
+      setPronto(true);
+    }
+  },[user]);
+
+  /* scritture */
+  const saveSez = useCallback((id,obj)=>{
+    setSezioni(p=>{ const n={...p}; if(obj) n[id]=obj; else delete n[id];
+      if(!HAS_FB) local.set(ROOT+':sezioni', n); return n; });
+    if(HAS_FB) fbDb.ref(ROOT+'/sezioni/'+id).set(obj||null);
+  },[]);
+
+  const saveDoc = useCallback((id,obj)=>{
+    setDocumenti(p=>{ const n={...p}; if(obj) n[id]=obj; else delete n[id];
+      if(!HAS_FB) local.set(ROOT+':documenti', n); return n; });
+    if(HAS_FB) fbDb.ref(ROOT+'/documenti/'+id).set(obj||null);
+    setSalvato('Salvato'); setTimeout(()=>setSalvato(''), 1600);
+  },[]);
+
+  /* selezione iniziale */
+  useEffect(()=>{
+    if(!pronto || selSez) return;
+    const ids = Object.keys(sezioni);
+    if(ids.length){
+      ids.sort((a,b)=>(sezioni[a].ordine||0)-(sezioni[b].ordine||0));
+      setSelSez(ids[0]);
+    }
+  },[pronto,sezioni,selSez]);
+
+  /* primo avvio: sezioni di partenza */
+  useEffect(()=>{
+    if(!pronto) return;
+    if(Object.keys(sezioni).length===0 && !local.get(ROOT+':seed')){
+      local.set(ROOT+':seed', true);
+      [['Controlling','Reporting, chiusure, analisi scostamenti',COLORS[0]],
+       ['Riunioni di area','Incontri con le altre funzioni',COLORS[1]],
+       ['Idee e appunti','Tutto quello che non ha ancora una casa',COLORS[4]]
+      ].forEach(([nome,descrizione,colore],i)=>{
+        const id=uid(); saveSez(id,{id,nome,descrizione,colore,ordine:i});
+      });
+    }
+  },[pronto,sezioni,saveSez]);
+
+  const sezList = useMemo(()=>Object.values(sezioni).sort((a,b)=>(a.ordine||0)-(b.ordine||0)),[sezioni]);
+  const docList = useMemo(()=>{
+    let l = Object.values(documenti);
+    if(q.trim()){
+      const s=q.toLowerCase();
+      l = l.filter(d=>(d.titolo||'').toLowerCase().includes(s)
+        || stripHtml(d.corpo).toLowerCase().includes(s)
+        || (d.partecipanti||'').toLowerCase().includes(s)
+        || (d.agenda||[]).some(p=>(p.titolo+' '+p.note).toLowerCase().includes(s)));
+    } else if(selSez && selSez!=='ATTIVITA'){
+      l = l.filter(d=>d.sezioneId===selSez);
+    }
+    return l.sort((a,b)=>{
+      const da = a.data||a.creato.slice(0,10), db_ = b.data||b.creato.slice(0,10);
+      return db_.localeCompare(da);
+    });
+  },[documenti,selSez,q]);
+
+  const countBySez = useMemo(()=>{
+    const c={}; Object.values(documenti).forEach(d=>{c[d.sezioneId]=(c[d.sezioneId]||0)+1;}); return c;
+  },[documenti]);
+
+  const azioniAperte = useMemo(()=>{
+    const out=[];
+    Object.values(documenti).forEach(d=>(d.azioni||[]).forEach(a=>{
+      if(!a.fatto && (a.testo||'').trim()) out.push({...a, doc:d});
+    }));
+    return out.sort((a,b)=>{
+      if(!a.scadenza) return 1; if(!b.scadenza) return -1;
+      return a.scadenza.localeCompare(b.scadenza);
+    });
+  },[documenti]);
+
+  const doc = selDoc ? documenti[selDoc] : null;
+  const sezCorrente = doc ? sezioni[doc.sezioneId] : (selSez!=='ATTIVITA'? sezioni[selSez] : null);
+
+  const patchDoc = (patch) => {
+    if(!doc) return;
+    saveDoc(doc.id, {...doc, ...patch, aggiornato: nowISO()});
+  };
+
+  /* editor rich text con debounce */
+  const bodyTimer = useRef(null);
+  const onBody = (html) => {
+    clearTimeout(bodyTimer.current);
+    bodyTimer.current = setTimeout(()=>patchDoc({corpo:html}), 700);
+  };
+
+  const creaDoc = (tipo,tpl,titolo) => {
+    const sid = (selSez && selSez!=='ATTIVITA') ? selSez : (sezList[0]&&sezList[0].id);
+    if(!sid){ alert('Crea prima una sezione.'); return; }
+    const d = emptyDoc(sid, tipo, tpl);
+    d.titolo = titolo || '';
+    saveDoc(d.id, d);
+    setSelDoc(d.id); setModalNew(false); setMobileView('doc');
+  };
+
+  const eliminaDoc = () => {
+    if(!doc) return;
+    if(confirm(`Eliminare "${doc.titolo||'documento senza titolo'}"?`)){ saveDoc(doc.id,null); setSelDoc(null); }
+  };
+
+  const duplicaDoc = () => {
+    if(!doc) return;
+    const d = {...JSON.parse(JSON.stringify(doc)), id:uid(), titolo:(doc.titolo||'Documento')+' (copia)',
+      creato:nowISO(), aggiornato:nowISO(), data: today(), stato:'da preparare'};
+    (d.azioni||[]).forEach(a=>{a.fatto=false;});
+    saveDoc(d.id,d); setSelDoc(d.id);
+  };
+
+  const esportaSezione = (fmt) => {
+    const lista = docList;
+    if(!lista.length){ alert('Non c\'è niente da esportare.'); return; }
+    const titolo = q.trim()? `Ricerca "${q}"` : (sezCorrente? sezCorrente.nome : 'Quaderno');
+    const inner = `<h1>${titolo}</h1>` + lista.map(d=>'<div class="doc-sep">'+docToHtml(d, sezioni[d.sezioneId])+'</div>').join('');
+    fmt==='word' ? exportWord(titolo, titolo, inner) : exportPdf(titolo, inner);
+  };
+
+  if(user===undefined) return <div style={{padding:40,color:'var(--muted)'}}>Caricamento…</div>;
+  if(HAS_FB && !user) return <Login/>;
+
+  /* ── colonna documento ── */
+  const renderDoc = () => {
+    if(selSez==='ATTIVITA'){
+      return (
+        <div className="actions-wrap">
+          <h1 style={{fontFamily:'var(--serif)',fontSize:30,margin:'0 0 4px'}}>Attività aperte</h1>
+          <p style={{color:'var(--muted)',marginTop:0}}>Tutto quello che è rimasto da fare, da tutte le riunioni.</p>
+          {azioniAperte.length===0 && <div className="empty"><strong>Niente in sospeso</strong>Le attività che segni nelle riunioni compaiono qui.</div>}
+          {azioniAperte.map(a=>{
+            const dd = daysTo(a.scadenza);
+            const cls = dd===null? '' : dd<0? ' late' : dd<=3? ' soon' : '';
+            return (
+              <div className="act" key={a.id}>
+                <input type="checkbox" className="chk" style={{marginTop:2}} onChange={()=>{
+                  const d = a.doc;
+                  saveDoc(d.id, {...d, azioni:d.azioni.map(x=>x.id===a.id?{...x,fatto:true}:x), aggiornato:nowISO()});
+                }}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div>{a.testo}</div>
+                  <div className="src">
+                    {a.responsabile && <span className="who">{a.responsabile} · </span>}
+                    <button className="link-btn" onClick={()=>{setSelSez(a.doc.sezioneId); setSelDoc(a.doc.id); setMobileView('doc');}}>
+                      {a.doc.titolo||'Documento senza titolo'}
+                    </button>
+                  </div>
+                </div>
+                <div className={'due'+cls}>
+                  {a.scadenza ? fmtDate(a.scadenza) + (dd<0? ` · ${-dd}g fa` : dd===0? ' · oggi' : '') : '—'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if(!doc) return (
+      <div className="empty" style={{paddingTop:'22vh'}}>
+        <strong>Nessun documento aperto</strong>
+        Scegli un documento a sinistra, oppure creane uno nuovo.
+      </div>
+    );
+
+    const isMeet = doc.tipo==='riunione';
+    const inner = () => docToHtml(doc, sezioni[doc.sezioneId]);
+    const fname = (doc.titolo||'documento') + (doc.data? ' '+doc.data : '');
+
+    return (
+      <>
+        <div className="doc-bar">
+          <button className="btn ghost sm mobile-back" onClick={()=>setMobileView('nav')}>← Elenco</button>
+          {isMeet && (
+            <select className="btn sm" value={doc.stato} onChange={e=>patchDoc({stato:e.target.value})}>
+              <option>da preparare</option><option>preparata</option><option>svolta</option>
+            </select>
+          )}
+          <span className="spacer"></span>
+          <span className="saved">{salvato}</span>
+          <button className="btn sm" onClick={()=>exportWord(fname, doc.titolo||'Documento', inner())}>Word</button>
+          <button className="btn sm" onClick={()=>exportPdf(doc.titolo||'Documento', inner())}>PDF</button>
+          <button className="btn ghost sm" onClick={duplicaDoc} title="Duplica come nuovo">Duplica</button>
+          <button className="btn ghost sm danger" onClick={eliminaDoc}>Elimina</button>
+        </div>
+
+        <div className="doc">
+          <input className="title-in" value={doc.titolo} placeholder="Titolo del documento"
+            onChange={e=>patchDoc({titolo:e.target.value})}/>
+
+          <div className="meta-grid">
+            <div className="f">
+              <label>Sezione</label>
+              <select value={doc.sezioneId} onChange={e=>patchDoc({sezioneId:e.target.value})}>
+                {sezList.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+            </div>
+            <div className="f"><label>Data</label>
+              <input type="date" value={doc.data||''} onChange={e=>patchDoc({data:e.target.value})}/></div>
+            {isMeet && <div className="f"><label>Ora</label>
+              <input type="time" value={doc.ora||''} onChange={e=>patchDoc({ora:e.target.value})}/></div>}
+            {isMeet && <div className="f"><label>Luogo</label>
+              <input value={doc.luogo||''} placeholder="Sala, Teams…" onChange={e=>patchDoc({luogo:e.target.value})}/></div>}
+            {isMeet && <div className="f" style={{gridColumn:'1 / -1'}}><label>Partecipanti</label>
+              <input value={doc.partecipanti||''} placeholder="Nomi separati da virgola"
+                onChange={e=>patchDoc({partecipanti:e.target.value})}/></div>}
+            <div className="f" style={{gridColumn:'1 / -1'}}>
+              <label>{isMeet?'Obiettivo della riunione':'In sintesi'}</label>
+              <input value={doc.obiettivo||''} placeholder={isMeet?'Cosa deve uscire da questo incontro':'Una riga per ricordarti di cosa parla'}
+                onChange={e=>patchDoc({obiettivo:e.target.value})}/>
+            </div>
+          </div>
+
+          {isMeet && (
+            <>
+              <div className="sec-h"><h3>Ordine del giorno</h3><div className="rule"></div></div>
+              {(doc.agenda||[]).map((p,i)=>(
+                <AgendaRow key={p.id} p={p} i={i}
+                  onChange={np=>patchDoc({agenda:doc.agenda.map(x=>x.id===p.id?np:x)})}
+                  onRemove={()=>patchDoc({agenda:doc.agenda.filter(x=>x.id!==p.id)})}/>
+              ))}
+              <button className="add-line" onClick={()=>patchDoc({agenda:[...(doc.agenda||[]),{id:uid(),titolo:'',note:''}]})}>
+                + Aggiungi punto
+              </button>
+            </>
+          )}
+
+          <div className="sec-h"><h3>{isMeet?'Note della riunione':'Appunti'}</h3><div className="rule"></div></div>
+          <RichText docKey={doc.id} value={doc.corpo} onChange={onBody}
+            placeholder={isMeet?'Cosa è stato detto, numeri, osservazioni…':'Scrivi qui…'}/>
+
+          {isMeet && (
+            <>
+              <div className="sec-h"><h3>Decisioni</h3><div className="rule"></div></div>
+              {(doc.decisioni||[]).map((d,i)=>(
+                <div className="row" key={d.id}>
+                  <div className="num">{i+1}</div>
+                  <div className="body">
+                    <input className="line" value={d.testo} placeholder="Cosa è stato deciso"
+                      onChange={e=>patchDoc({decisioni:doc.decisioni.map(x=>x.id===d.id?{...x,testo:e.target.value}:x)})}/>
+                  </div>
+                  <button className="x" onClick={()=>patchDoc({decisioni:doc.decisioni.filter(x=>x.id!==d.id)})}>✕</button>
+                </div>
+              ))}
+              <button className="add-line" onClick={()=>patchDoc({decisioni:[...(doc.decisioni||[]),{id:uid(),testo:''}]})}>
+                + Aggiungi decisione
+              </button>
+            </>
+          )}
+
+          <div className="sec-h"><h3>Attività</h3><div className="rule"></div></div>
+          {(doc.azioni||[]).map(a=>(
+            <ActionRow key={a.id} a={a}
+              onChange={na=>patchDoc({azioni:doc.azioni.map(x=>x.id===a.id?na:x)})}
+              onRemove={()=>patchDoc({azioni:doc.azioni.filter(x=>x.id!==a.id)})}/>
+          ))}
+          <button className="add-line" onClick={()=>patchDoc({azioni:[...(doc.azioni||[]),{id:uid(),testo:'',responsabile:'',scadenza:'',fatto:false}]})}>
+            + Aggiungi attività
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  const mobileHide = (col) => (window.innerWidth<=900 && mobileView==='doc' && col!=='doc') ? ' hide-m'
+    : (window.innerWidth<=900 && mobileView==='nav' && col==='doc') ? ' hide-m' : '';
+
+  return (
+    <div className="app">
+      {/* colonna sezioni */}
+      <div className={'col-sections'+mobileHide('nav')}>
+        <div className="brand">
+          <span className={'dot'+(HAS_FB?'':' off')} title={HAS_FB?'Sincronizzato':'Solo su questo dispositivo'}></span>
+          <h1>Quaderno</h1>
+        </div>
+        <div className="nav">
+          <div className="nav-group">
+            <button className={'nav-item'+(selSez==='ATTIVITA'?' on':'')} onClick={()=>{setSelSez('ATTIVITA');setSelDoc(null);setQ('');setMobileView('doc');}}>
+              <span className="chip" style={{background:'var(--amber)'}}></span>
+              <span className="name">Attività aperte</span>
+              <span className="n">{azioniAperte.length||''}</span>
+            </button>
+          </div>
+          <div className="nav-group">
+            <div className="nav-label">Sezioni</div>
+            {sezList.map(s=>(
+              <button key={s.id} className={'nav-item'+(selSez===s.id?' on':'')}
+                onClick={()=>{setSelSez(s.id);setSelDoc(null);setQ('');}}>
+                <span className="chip" style={{background:s.colore}}></span>
+                <span className="name">{s.nome}</span>
+                <span className="n">{countBySez[s.id]||''}</span>
+                <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
+              </button>
+            ))}
+            <button className="nav-add" onClick={()=>setModalSez({sezione:null})}>+ Nuova sezione</button>
+          </div>
+        </div>
+        <div className="sidebar-foot">
+          <span>{HAS_FB? 'Sincronizzato' : 'Memoria locale'}</span>
+          {HAS_FB && <button onClick={()=>fbAuth.signOut()}>Esci</button>}
+        </div>
+      </div>
+
+      {/* colonna elenco */}
+      <div className={'col-list'+mobileHide('list')}>
+        <div className="list-head">
+          <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
+          <p>{q.trim()? `${docList.length} documenti trovati`
+             : selSez==='ATTIVITA' ? 'Vista trasversale'
+             : (sezCorrente&&sezCorrente.descrizione) || `${docList.length} documenti`}</p>
+          <input className="search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca in tutto il quaderno…"/>
+        </div>
+        <div className="new-row">
+          <button className="btn primary sm" style={{flex:1}} onClick={()=>setModalNew(true)}>+ Nuovo documento</button>
+          <button className="btn sm" onClick={()=>esportaSezione('word')} title="Esporta l'elenco in Word">Word</button>
+          <button className="btn sm" onClick={()=>esportaSezione('pdf')} title="Esporta l'elenco in PDF">PDF</button>
+        </div>
+        <div className="list">
+          {docList.length===0 && (
+            <div className="empty">
+              <strong>{q.trim()?'Nessun risultato':'Sezione vuota'}</strong>
+              {q.trim()?'Prova con un\'altra parola.':'Crea il primo documento per iniziare.'}
+            </div>
+          )}
+          {docList.map(d=>{
+            const aperte = (d.azioni||[]).filter(a=>!a.fatto && a.testo.trim()).length;
+            return (
+              <button key={d.id} className={'card'+(selDoc===d.id?' on':'')}
+                onClick={()=>{setSelDoc(d.id); setMobileView('doc');}}>
+                <div className="t">{d.titolo||'Senza titolo'}</div>
+                <div className="m">
+                  {d.data && <span>{fmtDate(d.data)}</span>}
+                  {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
+                  {aperte>0 && <span className="tag todo">{aperte} da fare</span>}
+                  {q.trim() && sezioni[d.sezioneId] && <span>{sezioni[d.sezioneId].nome}</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* colonna documento */}
+      <div className={'col-doc'+mobileHide('doc')}>{renderDoc()}</div>
+
+      {modalSez && (
+        <SectionModal
+          sezione={modalSez.sezione}
+          count={modalSez.sezione? (countBySez[modalSez.sezione.id]||0) : 0}
+          onClose={()=>setModalSez(null)}
+          onSave={vals=>{
+            if(modalSez.sezione){ saveSez(modalSez.sezione.id, {...modalSez.sezione, ...vals}); }
+            else { const id=uid(); saveSez(id,{id,...vals,ordine:sezList.length}); setSelSez(id); }
+            setModalSez(null);
+          }}
+          onDelete={()=>{
+            const sid = modalSez.sezione.id;
+            Object.values(documenti).filter(d=>d.sezioneId===sid).forEach(d=>saveDoc(d.id,null));
+            saveSez(sid,null); setModalSez(null);
+            if(selSez===sid){ setSelSez(null); setSelDoc(null); }
+          }}/>
+      )}
+      {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
