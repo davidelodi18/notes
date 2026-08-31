@@ -9,22 +9,22 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 
 <!-- ═══════════════════════════════════════════════════════════════
-     CONFIGURAZIONE FIREBASE
-     Incolla qui il config del progetto (puoi copiarlo da un'altra
-     tua app: è lo stesso per tutte le web app dello stesso progetto).
-     Finché resta vuoto, l'app salva solo sul dispositivo.
+     CONFIGURAZIONE FIREBASE — progetto hubdavide-40287
+     Il nodo "quaderno" del Realtime Database nasce da solo al primo
+     salvataggio. Accesso con le stesse credenziali degli altri hub.
      ═══════════════════════════════════════════════════════════════ -->
 <script>
 window.FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyAzucVCOGBzPKErG2Szm9bL_mFnA8ihXqs",
+  authDomain: "hubdavide-40287.firebaseapp.com",
+  databaseURL: "https://hubdavide-40287-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "hubdavide-40287",
+  storageBucket: "hubdavide-40287.firebasestorage.app",
+  messagingSenderId: "450862351417",
+  appId: "1:450862351417:web:0540962bbfd9c2869d79e8"
 };
-window.DB_ROOT = "quaderno";   // nodo del Realtime Database
+window.DB_ROOT = "quaderno";                     // nodo del Realtime Database
+window.AUTH_EMAIL = "futsalfabbrico@gmail.com";  // email precompilata al login
 </script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -523,7 +523,7 @@ function NewDocModal({onCreate, onClose}){
 
 /* ═══════════ login ═══════════ */
 function Login(){
-  const [email,setEmail]=useState(''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
+  const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
   const entra = () => {
     setBusy(true); setErr('');
     fbAuth.signInWithEmailAndPassword(email.trim(), pw)
