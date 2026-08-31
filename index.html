@@ -9,23 +9,21 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 
 <!-- ═══════════════════════════════════════════════════════════════
-     CONFIGURAZIONE FIREBASE — progetto dedicato al Quaderno
-     Incolla qui il config che la console ti mostra dopo aver
-     registrato l'app web. Finché resta vuoto, l'app funziona
-     ma salva solo sul dispositivo.
+     CONFIGURAZIONE FIREBASE — progetto quaderno-f98c6
+     Database: europe-west1. Il ramo "quaderno" nasce al primo salvataggio.
      ═══════════════════════════════════════════════════════════════ -->
 <script>
 window.FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyB5b389DNTlmnBO3opdw2M-RsYbF1_V5hU",
+  authDomain: "quaderno-f98c6.firebaseapp.com",
+  databaseURL: "https://quaderno-f98c6-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "quaderno-f98c6",
+  storageBucket: "quaderno-f98c6.firebasestorage.app",
+  messagingSenderId: "885722046999",
+  appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.AUTH_EMAIL = "";        // email precompilata al login (facoltativa)
+window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
