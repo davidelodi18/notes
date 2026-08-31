@@ -151,8 +151,11 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .row input.line:focus{border-bottom-color:var(--accent)}
 .row textarea.line{width:100%;border:0;background:transparent;padding:4px 2px;outline:none;resize:vertical;
   min-height:38px;color:var(--ink-soft);font-size:13.5px}
+.row textarea.line.title{min-height:0;resize:none;overflow:hidden;color:var(--ink);font-size:14px;
+  line-height:1.45;padding:5px 2px;border-bottom:1px solid transparent}
+.row textarea.line.title:focus{border-bottom-color:var(--accent)}
 .row .sub{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-.row .sub input{border:1px solid var(--line-soft);border-radius:var(--radius);padding:3px 7px;font-size:12.5px;background:#fbfcfb}
+.row .sub input{border:1px solid var(--line-soft);border-radius:var(--radius);padding:3px 7px;font-size:12.5px;background:#fbfcfb;flex:1 1 120px;min-width:0;max-width:180px}
 .row .x{border:0;background:none;color:#c3ccc7;padding:6px 4px;line-height:1}
 .row .x:hover{color:var(--red)}
 .row.done .body{opacity:.5;text-decoration:line-through}
@@ -214,16 +217,63 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .err{color:var(--red);font-size:12.5px;margin-top:10px}
 
 .mobile-back{display:none}
+.doc-menu{position:relative;display:none}
+.doc-menu-pop{position:absolute;right:0;top:100%;margin-top:4px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:0 8px 24px rgba(23,33,29,.18);z-index:20;min-width:150px;overflow:hidden}
+.doc-menu-pop button{display:block;width:100%;text-align:left;border:0;background:none;padding:11px 14px}
+.doc-menu-pop button:hover{background:var(--line-soft)}
+.doc-menu-pop button.danger{color:var(--red)}
+
 @media(max-width:900px){
+  html{-webkit-text-size-adjust:100%}
+  body{overflow-x:hidden}
   .app{display:block;height:auto;overflow:visible}
-  .col-sections,.col-list,.col-doc{width:auto;border-right:0;height:auto}
+  .col-sections,.col-list,.col-doc{width:auto;border-right:0;height:auto;max-width:100%}
   .col-sections{border-bottom:1px solid var(--line)}
   .col-list{border-bottom:1px solid var(--line)}
   .hide-m{display:none!important}
   .mobile-back{display:inline-block}
-  .doc,.actions-wrap{padding:18px 16px 60px}
-  .doc-bar{padding:8px 14px}
-  .title-in{font-size:26px}
+  .doc-menu{display:inline-block}
+  .hide-mobile{display:none!important}
+
+  /* niente zoom automatico su iOS: i campi devono partire da 16px */
+  input,select,textarea{font-size:16px}
+
+  .doc-bar{padding:8px 12px;gap:5px;flex-wrap:nowrap;overflow:visible}
+  .doc-bar .btn.sm{padding:7px 10px}
+  .doc-bar select.btn{max-width:130px;text-overflow:ellipsis}
+  .saved{min-width:0;font-size:11px}
+
+  .doc,.actions-wrap{padding:16px 14px 70px;max-width:100%}
+  .title-in{font-size:25px}
+
+  /* due colonne strette invece di una griglia che sfora */
+  .meta-grid{grid-template-columns:1fr 1fr;gap:9px 10px;padding:12px 0 14px;margin-bottom:16px}
+  .meta-grid .f.wide{grid-column:1 / -1}
+  .f input,.f select,.f textarea{width:100%;min-width:0;max-width:100%}
+  .f input[type=date],.f input[type=time]{min-width:0;-webkit-appearance:none;appearance:none;text-align:left}
+
+  .sec-h{margin:20px 0 6px}
+  .sec-h h3{font-size:17px}
+  .row{padding:10px 0;gap:6px}
+  .row .num{width:16px;padding-top:9px;font-size:13px}
+  .row .x{padding:9px 6px;font-size:15px}
+  .row .sub input{padding:6px 8px}
+  .chk{width:20px;height:20px;margin-top:9px}
+  .add-line{padding:11px 0}
+
+  .rt-tools{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:10px}
+  .rt-tools::-webkit-scrollbar{display:none}
+  .rt-tools button{flex:none;padding:7px 10px}
+  .rt{font-size:16.5px;min-height:180px}
+  .rt table{font-size:12.5px;display:block;overflow-x:auto;white-space:nowrap}
+
+  .act{padding:12px 0}
+  .list-head{padding:12px}
+  .new-row{padding:9px 12px}
+  .nav{padding:0 6px}
+  .nav-item{padding:10px 9px}
+  .brand{padding:14px 12px 8px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -374,8 +424,14 @@ blockquote{border-left:2px solid #2f6f4e;margin:8pt 0;padding-left:10pt;color:#4
 .doc-sep{page-break-after:always}
 `;
 
+const PDF_PAGE_CSS = `
+@page{ size:A4; margin:0 }
+body{ padding:18mm 16mm 20mm }
+@media print{ body{ padding:18mm 16mm 20mm } }
+`;
+
 function fullHtml(title, inner){
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PRINT_CSS}</style></head><body>${inner}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PRINT_CSS}${PDF_PAGE_CSS}</style></head><body>${inner}</body></html>`;
 }
 
 function exportWord(filename, title, inner){
@@ -610,13 +666,25 @@ function RichText({value, onChange, placeholder, docKey}){
 }
 
 /* ═══════════ righe modificabili ═══════════ */
+function AutoLine({value, onChange, placeholder, className}){
+  const ref = useRef(null);
+  const fit = () => { const el=ref.current; if(!el) return; el.style.height='auto'; el.style.height=(el.scrollHeight)+'px'; };
+  useEffect(fit, [value]);
+  useEffect(()=>{ const h=()=>fit(); window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h); },[]);
+  return (
+    <textarea ref={ref} className={className||'line title'} rows={1} value={value} placeholder={placeholder}
+      onChange={e=>{ onChange(e.target.value); fit(); }}
+      onKeyDown={e=>{ if(e.key==='Enter') e.preventDefault(); }}/>
+  );
+}
+
 function AgendaRow({p, i, onChange, onRemove}){
   return (
     <div className="row">
       <div className="num">{i+1}</div>
       <div className="body">
-        <input className="line" value={p.titolo} placeholder="Punto all'ordine del giorno"
-          onChange={e=>onChange({...p,titolo:e.target.value})}/>
+        <AutoLine value={p.titolo} placeholder="Punto all'ordine del giorno"
+          onChange={v=>onChange({...p,titolo:v})}/>
         <textarea className="line" value={p.note} placeholder="Note, dati da portare, domande da fare…"
           onChange={e=>onChange({...p,note:e.target.value})}/>
       </div>
@@ -630,10 +698,9 @@ function ActionRow({a, onChange, onRemove}){
     <div className={'row'+(a.fatto?' done':'')}>
       <input type="checkbox" className="chk" checked={!!a.fatto} onChange={e=>onChange({...a,fatto:e.target.checked})}/>
       <div className="body">
-        <input className="line" value={a.testo} placeholder="Cosa va fatto"
-          onChange={e=>onChange({...a,testo:e.target.value})}/>
+        <AutoLine value={a.testo} placeholder="Cosa va fatto" onChange={v=>onChange({...a,testo:v})}/>
         <div className="sub">
-          <input value={a.responsabile} placeholder="Responsabile" style={{width:130}}
+          <input value={a.responsabile} placeholder="Responsabile"
             onChange={e=>onChange({...a,responsabile:e.target.value})}/>
           <input type="date" value={a.scadenza||''} onChange={e=>onChange({...a,scadenza:e.target.value})}/>
         </div>
@@ -763,6 +830,14 @@ function App(){
   const [modalNew,setModalNew] = useState(false);
   const [salvato,setSalvato] = useState('');
   const [mobileView,setMobileView] = useState('nav'); // nav | doc
+  const [menuOpen,setMenuOpen] = useState(false);
+  useEffect(()=>{ setMenuOpen(false); },[selDoc,selSez]);
+  useEffect(()=>{
+    if(!menuOpen) return;
+    const h = () => setMenuOpen(false);
+    document.addEventListener('click', h);
+    return () => document.removeEventListener('click', h);
+  },[menuOpen]);
   const [,forceW] = useState(0);
   useEffect(()=>{ const h=()=>forceW(x=>x+1); window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h); },[]);
 
@@ -967,8 +1042,17 @@ function App(){
           <span className="saved">{salvato}</span>
           <button className="btn sm" onClick={()=>exportWord(fname, doc.titolo||'Documento', inner())}>Word</button>
           <button className="btn sm" onClick={()=>exportPdf(doc.titolo||'Documento', inner())}>PDF</button>
-          <button className="btn ghost sm" onClick={duplicaDoc} title="Duplica come nuovo">Duplica</button>
-          <button className="btn ghost sm danger" onClick={eliminaDoc}>Elimina</button>
+          <button className="btn ghost sm hide-mobile" onClick={duplicaDoc} title="Duplica come nuovo">Duplica</button>
+          <button className="btn ghost sm danger hide-mobile" onClick={eliminaDoc}>Elimina</button>
+          <div className="doc-menu" onClick={e=>e.stopPropagation()}>
+            <button className="btn ghost sm" onClick={e=>{e.stopPropagation(); setMenuOpen(o=>!o);}} title="Altro">⋯</button>
+            {menuOpen && (
+              <div className="doc-menu-pop">
+                <button onClick={()=>{setMenuOpen(false); duplicaDoc();}}>Duplica</button>
+                <button className="danger" onClick={()=>{setMenuOpen(false); eliminaDoc();}}>Elimina</button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="doc">
