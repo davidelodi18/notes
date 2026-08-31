@@ -434,27 +434,27 @@ function fullHtml(title, inner){
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PRINT_CSS}${PDF_PAGE_CSS}</style></head><body>${inner}</body></html>`;
 }
 
-/* stili applicati al contenitore fuori schermo da cui si genera il PDF */
+/* stili applicati al contenitore che html2pdf crea per la conversione */
 const PDF_DOM_CSS = `
-#pdfsrc{width:760px;background:#fff;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.5;color:#17211d}
-#pdfsrc .kicker{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin:0 0 5px;letter-spacing:.04em}
-#pdfsrc h1{font-size:30px;margin:0 0 12px;line-height:1.2}
-#pdfsrc h2{font-size:20px;margin:24px 0 8px;border-bottom:1px solid #d5dcd7;padding-bottom:4px}
-#pdfsrc h3{font-size:17px;margin:16px 0 5px}
-#pdfsrc table.meta{border-collapse:collapse;margin:12px 0 18px;width:100%}
-#pdfsrc table.meta td{padding:4px 10px 4px 0;vertical-align:top;font-size:14px;border:0}
-#pdfsrc table.meta td.k{color:#7b8a83;width:150px;font-family:Arial,sans-serif;font-size:12.5px}
-#pdfsrc table{border-collapse:collapse;width:100%;margin:10px 0;font-family:Arial,sans-serif;font-size:13.5px}
-#pdfsrc td,#pdfsrc th{border:1px solid #d5dcd7;padding:7px 9px;vertical-align:top}
-#pdfsrc th{background:#e9ede9;text-align:left;font-weight:bold}
-#pdfsrc ol,#pdfsrc ul{padding-left:24px}
-#pdfsrc li{margin:6px 0}
-#pdfsrc .note{font-size:14px;color:#41504a;margin:4px 0 8px}
-#pdfsrc blockquote{border-left:2px solid #2f6f4e;margin:10px 0;padding-left:14px;color:#41504a;font-style:italic}
-#pdfsrc img{max-width:100%;height:auto}
-#pdfsrc figure{margin:14px 0;text-align:center}
-#pdfsrc figcaption{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin-top:4px}
-#pdfsrc .doc-sep{page-break-after:always}
+.pdfdoc{width:100%;background:#fff;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.5;color:#17211d}
+.pdfdoc .kicker{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin:0 0 5px;letter-spacing:.04em}
+.pdfdoc h1{font-size:30px;margin:0 0 12px;line-height:1.2;color:#17211d}
+.pdfdoc h2{font-size:20px;margin:24px 0 8px;border-bottom:1px solid #d5dcd7;padding-bottom:4px;color:#17211d}
+.pdfdoc h3{font-size:17px;margin:16px 0 5px;color:#17211d}
+.pdfdoc table.meta{border-collapse:collapse;margin:12px 0 18px;width:100%}
+.pdfdoc table.meta td{padding:4px 10px 4px 0;vertical-align:top;font-size:14px;border:0}
+.pdfdoc table.meta td.k{color:#7b8a83;width:150px;font-family:Arial,sans-serif;font-size:12.5px}
+.pdfdoc table{border-collapse:collapse;width:100%;margin:10px 0;font-family:Arial,sans-serif;font-size:13.5px}
+.pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:7px 9px;vertical-align:top}
+.pdfdoc th{background:#e9ede9;text-align:left;font-weight:bold}
+.pdfdoc ol,.pdfdoc ul{padding-left:24px;margin:8px 0}
+.pdfdoc li{margin:6px 0}
+.pdfdoc .note{font-size:14px;color:#41504a;margin:4px 0 8px}
+.pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:10px 0;padding-left:14px;color:#41504a;font-style:italic}
+.pdfdoc img{max-width:100%;height:auto}
+.pdfdoc figure{margin:14px 0;text-align:center}
+.pdfdoc figcaption{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin-top:4px}
+.pdfdoc .doc-sep{page-break-after:always}
 `;
 
 function loadScript(src){
@@ -476,9 +476,26 @@ function printFallback(title, inner){
   setTimeout(()=>{ f.contentWindow.focus(); f.contentWindow.print(); setTimeout(()=>f.remove(), 1200); }, 350);
 }
 
+/* true se il canvas contiene solo pixel bianchi/trasparenti */
+function canvasVuoto(c){
+  try{
+    const ctx = c.getContext('2d');
+    const W = c.width, H = c.height;
+    if(!W || !H) return true;
+    const passo = 7;   // campiono una griglia di punti, non tutti i pixel
+    for(let y=0; y<H; y+=Math.max(1,Math.floor(H/passo))){
+      const riga = ctx.getImageData(0, Math.min(y,H-1), W, 1).data;
+      for(let x=0; x<W*4; x+=4){
+        const r=riga[x], g=riga[x+1], b=riga[x+2], a=riga[x+3];
+        if(a>10 && (r<245 || g<245 || b<245)) return false;
+      }
+    }
+    return true;
+  }catch(e){ return false; }   // nel dubbio, procedo
+}
+
 async function exportPdf(title, inner, filename){
   const nome = ((filename||title||'documento').replace(/[^\w\sàèéìòùÀÈÉÌÒÙ\-]/gi,'').trim() || 'documento') + '.pdf';
-  let box = null;
   try{
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
     if(!window.html2pdf) throw new Error('libreria non disponibile');
@@ -488,27 +505,31 @@ async function exportPdf(title, inner, filename){
       st.id = 'pdf-style'; st.textContent = PDF_DOM_CSS;
       document.head.appendChild(st);
     }
-    box = document.createElement('div');
-    box.id = 'pdfsrc';
-    box.style.cssText = 'position:fixed;left:-10000px;top:0;';
-    box.innerHTML = inner;
-    document.body.appendChild(box);
 
-    await window.html2pdf().set({
+    const wrapped = `<div class="pdfdoc">${inner}</div>`;
+    const opt = {
       margin: [16, 15, 18, 15],
       filename: nome,
       image: { type:'jpeg', quality:0.96 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor:'#ffffff', logging:false },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor:'#ffffff', logging:false, scrollX:0, scrollY:0 },
       jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
       pagebreak: { mode:['css','legacy'], avoid:['tr','figure','li','h2','h3'] }
-    }).from(box).save();
+    };
+
+    let w = window.html2pdf().set(opt).from(wrapped, 'string');
+    w = w.toContainer().toCanvas();
+    await w;
+
+    const canvas = w.prop && w.prop.canvas;
+    if(canvas && canvasVuoto(canvas)) throw new Error('pagina generata vuota');
+
+    await w.toPdf().save();
     return true;
   }catch(e){
     console.error('PDF diretto non riuscito:', e);
+    alert('Non sono riuscito a generare il PDF direttamente. Apro la stampa: da lì scegli "Salva come PDF".');
     printFallback(title, inner);
     return false;
-  }finally{
-    if(box) box.remove();
   }
 }
 
