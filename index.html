@@ -9,22 +9,23 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 
 <!-- ═══════════════════════════════════════════════════════════════
-     CONFIGURAZIONE FIREBASE — progetto hubdavide-40287
-     Il nodo "quaderno" del Realtime Database nasce da solo al primo
-     salvataggio. Accesso con le stesse credenziali degli altri hub.
+     CONFIGURAZIONE FIREBASE — progetto dedicato al Quaderno
+     Incolla qui il config che la console ti mostra dopo aver
+     registrato l'app web. Finché resta vuoto, l'app funziona
+     ma salva solo sul dispositivo.
      ═══════════════════════════════════════════════════════════════ -->
 <script>
 window.FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAzucVCOGBzPKErG2Szm9bL_mFnA8ihXqs",
-  authDomain: "hubdavide-40287.firebaseapp.com",
-  databaseURL: "https://hubdavide-40287-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "hubdavide-40287",
-  storageBucket: "hubdavide-40287.firebasestorage.app",
-  messagingSenderId: "450862351417",
-  appId: "1:450862351417:web:0540962bbfd9c2869d79e8"
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
 };
-window.DB_ROOT = "quaderno";                     // nodo del Realtime Database
-window.AUTH_EMAIL = "futsalfabbrico@gmail.com";  // email precompilata al login
+window.DB_ROOT = "quaderno";   // ramo del Realtime Database
+window.AUTH_EMAIL = "";        // email precompilata al login (facoltativa)
 </script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -174,6 +175,19 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt li{margin:3px 0}
 .rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
 .rt a{color:var(--accent)}
+.rt table{border-collapse:collapse;width:100%;margin:14px 0;font-family:var(--sans);font-size:13.5px}
+.rt table td,.rt table th{border:1px solid var(--line);padding:6px 9px;vertical-align:top;min-width:40px}
+.rt table th{background:var(--shell);text-align:left;font-weight:600}
+.rt table td:focus,.rt table th:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.rt figure{margin:16px 0;text-align:center}
+.rt img{max-width:100%;height:auto;border-radius:4px;display:block;margin:0 auto}
+.rt figcaption{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:5px}
+.rt-ctx{display:flex;gap:4px;align-items:center;padding:5px 8px;margin:0 0 8px;background:var(--accent-soft);
+  border-radius:var(--radius);font-size:12.5px;color:#255840;flex-wrap:wrap}
+.rt-ctx b{font-weight:600;margin-right:4px}
+.rt-ctx button{border:1px solid #c9ded2;background:#fff;border-radius:4px;padding:2px 8px;font-size:12.5px;color:#255840}
+.rt-ctx button:hover{background:#255840;color:#fff;border-color:#255840}
+.peso{font-size:12px;color:var(--amber);padding:6px 0}
 
 /* ── azioni globali ─────────────────────────────────── */
 .actions-wrap{max-width:820px;margin:0 auto;padding:26px 28px 80px}
@@ -349,6 +363,12 @@ table.meta td.k{color:#7b8a83;width:110pt;font-family:Arial,sans-serif;font-size
 table.grid{border-collapse:collapse;width:100%;margin:8pt 0;font-size:10.5pt}
 table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:Arial,sans-serif;font-size:9.5pt}
 table.grid td{padding:5pt 7pt;border:1px solid #d5dcd7;vertical-align:top}
+table{border-collapse:collapse;max-width:100%}
+td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:Arial,sans-serif;font-size:10pt}
+th{background:#e9ede9;text-align:left;font-weight:bold}
+img{max-width:100%;height:auto}
+figure{margin:10pt 0;text-align:center;page-break-inside:avoid}
+figcaption{font-family:Arial,sans-serif;font-size:9pt;color:#7b8a83;margin-top:3pt}
 ol,ul{padding-left:18pt}
 li{margin:4pt 0}
 .note{font-size:10.5pt;color:#41504a;margin:3pt 0 6pt}
@@ -382,11 +402,146 @@ function exportPdf(title, inner){
   setTimeout(()=>{ f.contentWindow.focus(); f.contentWindow.print(); setTimeout(()=>f.remove(), 1200); }, 350);
 }
 
+/* ═══════════ compressione immagini ═══════════ */
+function compressImage(file, maxPx=1200, quality=0.78){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let {width:w, height:h} = img;
+        if(w>maxPx || h>maxPx){ const k = maxPx/Math.max(w,h); w=Math.round(w*k); h=Math.round(h*k); }
+        const c = document.createElement('canvas');
+        c.width=w; c.height=h;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        res(c.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => rej(new Error('Immagine non leggibile'));
+      img.src = r.result;
+    };
+    r.onerror = () => rej(new Error('Lettura non riuscita'));
+    r.readAsDataURL(file);
+  });
+}
+const kb = s => Math.round((s||'').length*0.75/1024);
+
 /* ═══════════ editor rich text ═══════════ */
 function RichText({value, onChange, placeholder, docKey}){
   const ref = useRef(null);
+  const fileRef = useRef(null);
+  const [inTable,setInTable] = useState(false);
+  const [busy,setBusy] = useState('');
+
   useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
-  const cmd = (c,v)=>{ document.execCommand(c,false,v||null); ref.current.focus(); onChange(ref.current.innerHTML); };
+
+  const emit = () => onChange(ref.current.innerHTML);
+  const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
+
+  const cellFromSelection = () => {
+    const s = window.getSelection();
+    if(!s || !s.anchorNode || !ref.current.contains(s.anchorNode)) return null;
+    let n = s.anchorNode;
+    while(n && n!==ref.current){
+      if(n.nodeType===1 && (n.tagName==='TD'||n.tagName==='TH')) return n;
+      n = n.parentNode;
+    }
+    return null;
+  };
+  const checkCtx = () => setInTable(!!cellFromSelection());
+
+  const insertTable = () => {
+    const r = parseInt(prompt('Quante righe? (esclusa l\'intestazione)','3'),10);
+    if(!r || r<1) return;
+    const c = parseInt(prompt('Quante colonne?','3'),10);
+    if(!c || c<1) return;
+    let h = '<table><thead><tr>';
+    for(let j=0;j<c;j++) h += '<th>Colonna '+(j+1)+'</th>';
+    h += '</tr></thead><tbody>';
+    for(let i=0;i<r;i++){ h += '<tr>'; for(let j=0;j<c;j++) h += '<td><br></td>'; h += '</tr>'; }
+    h += '</tbody></table><p><br></p>';
+    cmd('insertHTML', h);
+  };
+
+  const addRow = () => {
+    const cell = cellFromSelection(); if(!cell) return;
+    const tr = cell.parentNode, tbody = tr.parentNode;
+    const nr = document.createElement('tr');
+    for(let i=0;i<tr.children.length;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; nr.appendChild(td); }
+    if(tbody.tagName==='THEAD'){
+      const table = tbody.parentNode;
+      let body = table.querySelector('tbody');
+      if(!body){ body=document.createElement('tbody'); table.appendChild(body); }
+      body.insertBefore(nr, body.firstChild);
+    } else { tbody.insertBefore(nr, tr.nextSibling); }
+    emit();
+  };
+  const delRow = () => {
+    const cell = cellFromSelection(); if(!cell) return;
+    const tr = cell.parentNode;
+    if(tr.parentNode.tagName==='THEAD'){ alert('L\'intestazione non si elimina.'); return; }
+    tr.remove(); emit();
+  };
+  const addCol = () => {
+    const cell = cellFromSelection(); if(!cell) return;
+    const idx = Array.prototype.indexOf.call(cell.parentNode.children, cell);
+    const table = cell.closest('table');
+    table.querySelectorAll('tr').forEach(tr=>{
+      const isHead = tr.parentNode.tagName==='THEAD';
+      const el = document.createElement(isHead?'th':'td');
+      el.innerHTML = isHead ? 'Colonna' : '<br>';
+      tr.insertBefore(el, tr.children[idx+1] || null);
+    });
+    emit();
+  };
+  const delCol = () => {
+    const cell = cellFromSelection(); if(!cell) return;
+    const idx = Array.prototype.indexOf.call(cell.parentNode.children, cell);
+    const table = cell.closest('table');
+    if(cell.parentNode.children.length<=1){ table.remove(); emit(); return; }
+    table.querySelectorAll('tr').forEach(tr=>{ if(tr.children[idx]) tr.children[idx].remove(); });
+    emit();
+  };
+  const delTable = () => {
+    const cell = cellFromSelection(); if(!cell) return;
+    if(confirm('Eliminare tutta la tabella?')){ cell.closest('table').remove(); emit(); }
+  };
+
+  const pickImage = () => fileRef.current.click();
+  const onFile = async (e) => {
+    const files = Array.from(e.target.files||[]);
+    e.target.value='';
+    if(!files.length) return;
+    for(const f of files){
+      if(!f.type.startsWith('image/')){ alert(`"${f.name}" non è un'immagine. Per video e file usa il pulsante del collegamento.`); continue; }
+      setBusy('Comprimo '+f.name+'…');
+      try{
+        const dataUrl = await compressImage(f);
+        const cap = '';
+        ref.current.focus();
+        document.execCommand('insertHTML', false,
+          `<figure><img src="${dataUrl}" alt="${f.name.replace(/"/g,'')}"><figcaption>${cap}</figcaption></figure><p><br></p>`);
+        emit();
+      }catch(err){ alert('Non sono riuscito a inserire '+f.name); }
+    }
+    setBusy('');
+  };
+
+  const addLink = () => {
+    const sel = window.getSelection();
+    const testo = sel && sel.toString();
+    const url = prompt('Indirizzo del collegamento (va bene anche un video su Drive o YouTube):','https://');
+    if(!url || url==='https://') return;
+    if(testo){ cmd('createLink', url); }
+    else {
+      const et = prompt('Testo da mostrare:', url) || url;
+      cmd('insertHTML', `<a href="${url.replace(/"/g,'')}">${et}</a>&nbsp;`);
+    }
+  };
+
+  const peso = kb(value);
+
   return (
     <div>
       <div className="rt-tools">
@@ -399,13 +554,59 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
+        <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
+        <button onClick={insertTable} title="Inserisci tabella">▦</button>
+        <button onClick={pickImage} title="Inserisci foto">🖼</button>
+        <button onClick={addLink} title="Collegamento (anche a un video)">🔗</button>
+        <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={()=>cmd('removeFormat')} title="Togli formattazione">✕</button>
       </div>
+
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={onFile}/>
+
+      {busy && <div className="peso">{busy}</div>}
+
+      {inTable && (
+        <div className="rt-ctx">
+          <b>Tabella</b>
+          <button onClick={addRow}>+ riga</button>
+          <button onClick={delRow}>− riga</button>
+          <button onClick={addCol}>+ colonna</button>
+          <button onClick={delCol}>− colonna</button>
+          <button onClick={delTable}>elimina</button>
+        </div>
+      )}
+
       <div ref={ref} className="rt" contentEditable suppressContentEditableWarning
         data-ph={placeholder||'Scrivi qui…'}
-        onInput={e=>onChange(e.currentTarget.innerHTML)}
-        onPaste={e=>{ e.preventDefault(); const t=(e.clipboardData||window.clipboardData).getData('text/plain'); document.execCommand('insertText',false,t); }}
+        onInput={emit}
+        onKeyUp={checkCtx}
+        onMouseUp={checkCtx}
+        onFocus={checkCtx}
+        onPaste={e=>{
+          const dt = e.clipboardData||window.clipboardData;
+          const html = dt.getData('text/html');
+          if(html && /<table/i.test(html)){
+            e.preventDefault();
+            const box = document.createElement('div');
+            box.innerHTML = html;
+            const t = box.querySelector('table');
+            if(t){
+              t.querySelectorAll('*').forEach(el=>{
+                ['style','class','width','height','bgcolor','align','valign','id'].forEach(a=>el.removeAttribute(a));
+              });
+              t.querySelectorAll('table').forEach((n,i)=>{ if(i>0) n.replaceWith(...n.childNodes); });
+              document.execCommand('insertHTML', false, t.outerHTML + '<p><br></p>');
+              emit();
+              return;
+            }
+          }
+          e.preventDefault();
+          document.execCommand('insertText', false, dt.getData('text/plain'));
+        }}
       />
+
+      {peso>700 && <div className="peso">Questo documento pesa circa {peso} KB. Oltre il migliaio di KB il salvataggio può rallentare: valuta di togliere qualche foto.</div>}
     </div>
   );
 }
