@@ -154,6 +154,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .row textarea.line.title{min-height:0;resize:none;overflow:hidden;color:var(--ink);font-size:14px;
   line-height:1.45;padding:5px 2px;border-bottom:1px solid transparent}
 .row textarea.line.title:focus{border-bottom-color:var(--accent)}
+.row textarea.line.nota{min-height:0;resize:none;overflow:hidden;font-size:13px;color:var(--ink-soft);
+  line-height:1.5;padding:3px 2px;margin-top:1px}
+.row textarea.line.nota::placeholder{color:#c9d1cc}
 .row .sub{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 .row .sub input{border:1px solid var(--line-soft);border-radius:var(--radius);padding:3px 7px;font-size:12.5px;background:#fbfcfb;flex:1 1 120px;min-width:0;max-width:180px}
 .row .x{border:0;background:none;color:#c3ccc7;padding:6px 4px;line-height:1}
@@ -368,13 +371,14 @@ function azioniHtml(azioni){
   const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const az = azioni || [];
   if(!az.length) return '';
-  const riga = a => `<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`;
+  const riga = a => `<tr><td>${e(a.testo)}${a.note && a.note.trim() ? `<div class="note">${e(a.note).replace(/\n/g,'<br>')}</div>` : ''}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`;
   let h = '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
   az.forEach(a=>{
     if(a.macro){
       const f = az.filter(x=>!x.macro && x.parentId===a.id);
       const fatte = f.filter(x=>x.fatto).length;
-      h += `<tr><td colspan="4" class="macro-cell"><strong>${e(a.testo)}</strong>${f.length?` — ${fatte} di ${f.length} chiuse`:''}</td></tr>`;
+      const nota = a.note && a.note.trim() ? `<div class="note">${e(a.note).replace(/\n/g,'<br>')}</div>` : '';
+      h += `<tr><td colspan="4" class="macro-cell"><strong>${e(a.testo)}</strong>${f.length?` — ${fatte} di ${f.length} chiuse`:''}${nota}</td></tr>`;
       f.forEach(c=>{ h += riga(c); });
     } else if(!a.parentId){
       h += riga(a);
@@ -791,24 +795,36 @@ function RichText({value, onChange, placeholder, docKey}){
 }
 
 /* ═══════════ righe modificabili ═══════════ */
-function AutoLine({value, onChange, placeholder, className}){
+function AutoLine({value, onChange, placeholder, className, onEnter, autofocus}){
   const ref = useRef(null);
   const fit = () => { const el=ref.current; if(!el) return; el.style.height='auto'; el.style.height=(el.scrollHeight)+'px'; };
   useEffect(fit, [value]);
   useEffect(()=>{ const h=()=>fit(); window.addEventListener('resize',h); return ()=>window.removeEventListener('resize',h); },[]);
+  useEffect(()=>{
+    if(autofocus && ref.current){
+      ref.current.focus();
+      ref.current.scrollIntoView({block:'center', behavior:'smooth'});
+    }
+  },[]);
   return (
     <textarea ref={ref} className={className||'line title'} rows={1} value={value} placeholder={placeholder}
       onChange={e=>{ onChange(e.target.value); fit(); }}
-      onKeyDown={e=>{ if(e.key==='Enter') e.preventDefault(); }}/>
+      onKeyDown={e=>{
+        if(e.key==='Enter' && !e.shiftKey){
+          e.preventDefault();
+          if(onEnter) onEnter();
+        }
+      }}/>
   );
 }
 
-function AgendaRow({p, i, onChange, onRemove, mv}){
+function AgendaRow({p, i, onChange, onRemove, mv, onEnter, autofocus}){
   return (
     <div className="row">
       <div className="num">{i+1}</div>
       <div className="body">
         <AutoLine value={p.titolo} placeholder="Punto all'ordine del giorno"
+          onEnter={onEnter} autofocus={autofocus}
           onChange={v=>onChange({...p,titolo:v})}/>
         <textarea className="line" value={p.note} placeholder="Note, dati da portare, domande da fare…"
           onChange={e=>onChange({...p,note:e.target.value})}/>
@@ -828,13 +844,26 @@ function Frecce({onUp, onDown, primo, ultimo}){
   );
 }
 
-function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv}){
+function AutoNote({value, onChange, placeholder}){
+  const ref = useRef(null);
+  const fit = () => { const el=ref.current; if(!el) return; el.style.height='auto'; el.style.height=el.scrollHeight+'px'; };
+  useEffect(fit, [value]);
+  return (
+    <textarea ref={ref} className="line nota" rows={1} value={value||''} placeholder={placeholder||'Note…'}
+      onChange={e=>{ onChange(e.target.value); fit(); }}/>
+  );
+}
+
+function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, autofocus}){
   const complete = totali>0 && fatte===totali;
   return (
     <div className={'row macro'+(complete?' compl':'')}>
       <div className="body">
         <AutoLine className="line title macro-t" value={m.testo} placeholder="Nome della macro-attività"
+          onEnter={onEnter} autofocus={autofocus}
           onChange={v=>onChange({...m,testo:v})}/>
+        <AutoNote value={m.note} placeholder="Note sulla macro-attività…"
+          onChange={v=>onChange({...m,note:v})}/>
         <div className="macro-meta">
           <span className={'conta'+(complete?' ok':'')}>
             {totali===0 ? 'nessuna sotto-attività' : `${fatte} di ${totali} chiuse`}
@@ -848,12 +877,15 @@ function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv}){
   );
 }
 
-function ActionRow({a, onChange, onRemove, sub, mv}){
+function ActionRow({a, onChange, onRemove, sub, mv, onEnter, autofocus}){
   return (
     <div className={'row'+(a.fatto?' done':'')+(sub?' sub-row':'')}>
       <input type="checkbox" className="chk" checked={!!a.fatto} onChange={e=>onChange({...a,fatto:e.target.checked})}/>
       <div className="body">
-        <AutoLine value={a.testo} placeholder="Cosa va fatto" onChange={v=>onChange({...a,testo:v})}/>
+        <AutoLine value={a.testo} placeholder="Cosa va fatto" onEnter={onEnter} autofocus={autofocus}
+          onChange={v=>onChange({...a,testo:v})}/>
+        <AutoNote value={a.note} placeholder="Note, dettagli, stato di avanzamento…"
+          onChange={v=>onChange({...a,note:v})}/>
         <div className="sub">
           <input value={a.responsabile} placeholder="Responsabile"
             onChange={e=>onChange({...a,responsabile:e.target.value})}/>
@@ -988,6 +1020,7 @@ function App(){
   const [mobileView,setMobileView] = useState('nav'); // nav | doc
   const [menuOpen,setMenuOpen] = useState(false);
   const [pdfBusy,setPdfBusy] = useState(false);
+  const [focusId,setFocusId] = useState(null);
   useEffect(()=>{ setMenuOpen(false); },[selDoc,selSez]);
   useEffect(()=>{
     if(!menuOpen) return;
@@ -1258,6 +1291,12 @@ function App(){
               <div className="sec-h"><h3>Ordine del giorno</h3><div className="rule"></div></div>
               {(doc.agenda||[]).map((p,i)=>(
                 <AgendaRow key={p.id} p={p} i={i}
+                  autofocus={focusId===p.id}
+                  onEnter={()=>{
+                    const nuovo={id:uid(),titolo:'',note:''};
+                    const a=(doc.agenda||[]).slice(); a.splice(i+1,0,nuovo);
+                    patchDoc({agenda:a}); setFocusId(nuovo.id);
+                  }}
                   mv={{
                     onUp:()=>{ const a=doc.agenda.slice(); [a[i-1],a[i]]=[a[i],a[i-1]]; patchDoc({agenda:a}); },
                     onDown:()=>{ const a=doc.agenda.slice(); [a[i+1],a[i]]=[a[i],a[i+1]]; patchDoc({agenda:a}); },
@@ -1266,9 +1305,10 @@ function App(){
                   onChange={np=>patchDoc({agenda:doc.agenda.map(x=>x.id===p.id?np:x)})}
                   onRemove={()=>patchDoc({agenda:doc.agenda.filter(x=>x.id!==p.id)})}/>
               ))}
-              <button className="add-line" onClick={()=>patchDoc({agenda:[...(doc.agenda||[]),{id:uid(),titolo:'',note:''}]})}>
-                + Aggiungi punto
-              </button>
+              <button className="add-line" onClick={()=>{
+                const n={id:uid(),titolo:'',note:''};
+                patchDoc({agenda:[...(doc.agenda||[]), n]}); setFocusId(n.id);
+              }}>+ Aggiungi punto</button>
             </>
           )}
 
@@ -1284,6 +1324,12 @@ function App(){
                   <div className="num">{i+1}</div>
                   <div className="body">
                     <AutoLine value={d.testo} placeholder="Cosa è stato deciso"
+                      autofocus={focusId===d.id}
+                      onEnter={()=>{
+                        const nuova={id:uid(),testo:''};
+                        const a=(doc.decisioni||[]).slice(); a.splice(i+1,0,nuova);
+                        patchDoc({decisioni:a}); setFocusId(nuova.id);
+                      }}
                       onChange={v=>patchDoc({decisioni:doc.decisioni.map(x=>x.id===d.id?{...x,testo:v}:x)})}/>
                   </div>
                   <Frecce primo={i===0} ultimo={i===doc.decisioni.length-1}
@@ -1292,9 +1338,10 @@ function App(){
                   <button className="x" onClick={()=>patchDoc({decisioni:doc.decisioni.filter(x=>x.id!==d.id)})}>✕</button>
                 </div>
               ))}
-              <button className="add-line" onClick={()=>patchDoc({decisioni:[...(doc.decisioni||[]),{id:uid(),testo:''}]})}>
-                + Aggiungi decisione
-              </button>
+              <button className="add-line" onClick={()=>{
+                const n={id:uid(),testo:''};
+                patchDoc({decisioni:[...(doc.decisioni||[]), n]}); setFocusId(n.id);
+              }}>+ Aggiungi decisione</button>
             </>
           )}
 
@@ -1304,7 +1351,7 @@ function App(){
             const set = (nuove) => patchDoc({azioni:nuove});
             const upd = (id, nv) => set(az.map(x=>x.id===id?nv:x));
             const figlie = (mid) => az.filter(x=>!x.macro && x.parentId===mid);
-            const nuovaAz = (parentId=null) => ({id:uid(),testo:'',responsabile:'',scadenza:'',fatto:false,parentId});
+            const nuovaAz = (parentId=null) => ({id:uid(),testo:'',note:'',responsabile:'',scadenza:'',fatto:false,parentId});
 
             // blocchi di primo livello: una macro con le sue figlie, oppure un'attività singola
             const blocchi = [];
@@ -1331,6 +1378,19 @@ function App(){
               set(appiattisci(bl));
             };
 
+            const inserisciBlocco = (i) => {          // nuova attività di primo livello dopo il blocco i
+              const nuova = nuovaAz();
+              const bl = blocchi.slice();
+              bl.splice(i+1, 0, {capo:nuova, figlie:[]});
+              set(appiattisci(bl)); setFocusId(nuova.id);
+            };
+            const inserisciFiglia = (bi, pos) => {    // nuova sotto-attività dentro la macro bi
+              const nuova = nuovaAz(blocchi[bi].capo.id);
+              const bl = blocchi.map((x,k)=> k===bi ? {capo:x.capo, figlie:x.figlie.slice()} : x);
+              bl[bi].figlie.splice(pos, 0, nuova);
+              set(appiattisci(bl)); setFocusId(nuova.id);
+            };
+
             return (
               <>
                 {blocchi.map((b, i) => {
@@ -1341,6 +1401,8 @@ function App(){
                   if(!b.capo.macro){
                     return (
                       <ActionRow key={b.capo.id} a={b.capo} mv={mvBlocco}
+                        autofocus={focusId===b.capo.id}
+                        onEnter={()=>inserisciBlocco(i)}
                         onChange={nv=>upd(b.capo.id,nv)}
                         onRemove={()=>set(az.filter(x=>x.id!==b.capo.id))}/>
                     );
@@ -1349,17 +1411,18 @@ function App(){
                     <div key={b.capo.id}>
                       <MacroRow m={b.capo} totali={b.figlie.length} fatte={b.figlie.filter(x=>x.fatto).length}
                         mv={mvBlocco}
+                        autofocus={focusId===b.capo.id}
+                        onEnter={()=>inserisciFiglia(i, b.figlie.length)}
                         onChange={nv=>upd(b.capo.id,nv)}
-                        onAdd={()=>{
-                          const bl = blocchi.map((x,k)=> k===i ? {capo:x.capo, figlie:x.figlie.concat([nuovaAz(b.capo.id)])} : x);
-                          set(appiattisci(bl));
-                        }}
+                        onAdd={()=>inserisciFiglia(i, b.figlie.length)}
                         onRemove={()=>{
                           if(b.figlie.length && !confirm(`Eliminare "${b.capo.testo||'la macro-attività'}" e le sue ${b.figlie.length} sotto-attività?`)) return;
                           set(az.filter(x=>x.id!==b.capo.id && x.parentId!==b.capo.id));
                         }}/>
                       {b.figlie.map((c, fi)=>(
                         <ActionRow key={c.id} a={c} sub
+                          autofocus={focusId===c.id}
+                          onEnter={()=>inserisciFiglia(i, fi+1)}
                           mv={{
                             onUp:()=>muoviFiglia(i,fi,-1), onDown:()=>muoviFiglia(i,fi,1),
                             primo: fi===0, ultimo: fi===b.figlie.length-1
@@ -1371,8 +1434,8 @@ function App(){
                   );
                 })}
                 <div className="add-row">
-                  <button className="add-line" onClick={()=>set([...az, nuovaAz()])}>+ Aggiungi attività</button>
-                  <button className="add-line alt" onClick={()=>set([...az, {id:uid(),testo:'',macro:true}])}>+ Aggiungi macro-attività</button>
+                  <button className="add-line" onClick={()=>{ const n=nuovaAz(); set([...az,n]); setFocusId(n.id); }}>+ Aggiungi attività</button>
+                  <button className="add-line alt" onClick={()=>{ const n={id:uid(),testo:'',note:'',macro:true}; set([...az,n]); setFocusId(n.id); }}>+ Aggiungi macro-attività</button>
                 </div>
               </>
             );
