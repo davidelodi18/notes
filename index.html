@@ -168,7 +168,11 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .row.done .body{opacity:.5;text-decoration:line-through}
 .row.macro{border-bottom:0;padding:14px 0 4px;align-items:flex-start}
 .row.macro .macro-t{font-weight:600;font-size:15px;color:var(--ink)}
-.row.macro .macro-meta{display:flex;gap:12px;align-items:center;margin-top:2px}
+.row.macro .macro-meta{display:flex;gap:12px;align-items:center;margin-top:2px;flex-wrap:wrap}
+.caret{border:0;background:none;color:var(--muted);padding:6px 2px 0 0;line-height:1;font-size:12px;flex:none;width:18px}
+.caret:disabled{opacity:.25;cursor:default}
+.caret:hover:not(:disabled){color:var(--accent)}
+.row.macro.chiusa{border-bottom:1px solid var(--line-soft);padding-bottom:12px}
 .row.macro .conta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .row.macro .conta.ok{color:var(--accent)}
 .row.macro.compl .macro-t{color:var(--muted)}
@@ -854,10 +858,12 @@ function AutoNote({value, onChange, placeholder}){
   );
 }
 
-function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, autofocus}){
+function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, autofocus, chiusa, onToggle}){
   const complete = totali>0 && fatte===totali;
   return (
-    <div className={'row macro'+(complete?' compl':'')}>
+    <div className={'row macro'+(complete?' compl':'')+(chiusa?' chiusa':'')}>
+      <button className="caret" onClick={onToggle} title={chiusa?'Mostra le sotto-attività':'Nascondi le sotto-attività'}
+        disabled={totali===0}>{chiusa ? '▸' : '▾'}</button>
       <div className="body">
         <AutoLine className="line title macro-t" value={m.testo} placeholder="Nome della macro-attività"
           onEnter={onEnter} autofocus={autofocus}
@@ -868,6 +874,7 @@ function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, aut
           <span className={'conta'+(complete?' ok':'')}>
             {totali===0 ? 'nessuna sotto-attività' : `${fatte} di ${totali} chiuse`}
           </span>
+          {totali>0 && <button className="link-btn" onClick={onToggle}>{chiusa?'espandi':'comprimi'}</button>}
           <button className="link-btn" onClick={onAdd}>+ sotto-attività</button>
         </div>
       </div>
@@ -1386,7 +1393,7 @@ function App(){
             };
             const inserisciFiglia = (bi, pos) => {    // nuova sotto-attività dentro la macro bi
               const nuova = nuovaAz(blocchi[bi].capo.id);
-              const bl = blocchi.map((x,k)=> k===bi ? {capo:x.capo, figlie:x.figlie.slice()} : x);
+              const bl = blocchi.map((x,k)=> k===bi ? {capo:{...x.capo, chiusa:false}, figlie:x.figlie.slice()} : x);
               bl[bi].figlie.splice(pos, 0, nuova);
               set(appiattisci(bl)); setFocusId(nuova.id);
             };
@@ -1412,6 +1419,8 @@ function App(){
                       <MacroRow m={b.capo} totali={b.figlie.length} fatte={b.figlie.filter(x=>x.fatto).length}
                         mv={mvBlocco}
                         autofocus={focusId===b.capo.id}
+                        chiusa={!!b.capo.chiusa}
+                        onToggle={()=>upd(b.capo.id, {...b.capo, chiusa: !b.capo.chiusa})}
                         onEnter={()=>inserisciFiglia(i, b.figlie.length)}
                         onChange={nv=>upd(b.capo.id,nv)}
                         onAdd={()=>inserisciFiglia(i, b.figlie.length)}
@@ -1419,7 +1428,7 @@ function App(){
                           if(b.figlie.length && !confirm(`Eliminare "${b.capo.testo||'la macro-attività'}" e le sue ${b.figlie.length} sotto-attività?`)) return;
                           set(az.filter(x=>x.id!==b.capo.id && x.parentId!==b.capo.id));
                         }}/>
-                      {b.figlie.map((c, fi)=>(
+                      {!b.capo.chiusa && b.figlie.map((c, fi)=>(
                         <ActionRow key={c.id} a={c} sub
                           autofocus={focusId===c.id}
                           onEnter={()=>inserisciFiglia(i, fi+1)}
