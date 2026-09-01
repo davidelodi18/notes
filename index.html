@@ -158,7 +158,21 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .row .sub input{border:1px solid var(--line-soft);border-radius:var(--radius);padding:3px 7px;font-size:12.5px;background:#fbfcfb;flex:1 1 120px;min-width:0;max-width:180px}
 .row .x{border:0;background:none;color:#c3ccc7;padding:6px 4px;line-height:1}
 .row .x:hover{color:var(--red)}
+.mover{display:flex;flex-direction:column;gap:1px;flex:none;padding-top:2px}
+.mv{border:0;background:none;color:#c3ccc7;padding:2px 5px;line-height:1;font-size:12px;border-radius:3px}
+.mv:hover:not(:disabled){background:var(--line-soft);color:var(--ink)}
+.mv:disabled{opacity:.25;cursor:default}
 .row.done .body{opacity:.5;text-decoration:line-through}
+.row.macro{border-bottom:0;padding:14px 0 4px;align-items:flex-start}
+.row.macro .macro-t{font-weight:600;font-size:15px;color:var(--ink)}
+.row.macro .macro-meta{display:flex;gap:12px;align-items:center;margin-top:2px}
+.row.macro .conta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.row.macro .conta.ok{color:var(--accent)}
+.row.macro.compl .macro-t{color:var(--muted)}
+.row.sub-row{margin-left:20px;border-left:2px solid var(--line-soft);padding-left:12px;border-bottom:1px solid var(--line-soft)}
+.add-row{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.add-line.alt{color:var(--muted)}
+.add-line.alt:hover{color:var(--accent)}
 .add-line{border:0;background:none;color:var(--accent);padding:8px 0;text-align:left}
 .add-line:hover{text-decoration:underline}
 .chk{width:16px;height:16px;margin-top:8px;flex:none;accent-color:var(--accent)}
@@ -258,6 +272,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   .row{padding:10px 0;gap:6px}
   .row .num{width:16px;padding-top:9px;font-size:13px}
   .row .x{padding:9px 6px;font-size:15px}
+  .mv{padding:5px 8px;font-size:14px}
   .row .sub input{padding:6px 8px}
   .chk{width:20px;height:20px;margin-top:9px}
   .add-line{padding:11px 0}
@@ -348,6 +363,26 @@ const stripHtml = h => (h||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').re
 const fmtDate = d => { if(!d) return ''; const [y,m,g]=d.split('-'); return `${g}/${m}/${y}`; };
 const daysTo = d => { if(!d) return null; return Math.round((new Date(d+'T00:00:00') - new Date(today()+'T00:00:00'))/86400000); };
 
+/* tabella delle attività per gli export, con le macro come righe di raggruppamento */
+function azioniHtml(azioni){
+  const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const az = azioni || [];
+  if(!az.length) return '';
+  const riga = a => `<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`;
+  let h = '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
+  az.forEach(a=>{
+    if(a.macro){
+      const f = az.filter(x=>!x.macro && x.parentId===a.id);
+      const fatte = f.filter(x=>x.fatto).length;
+      h += `<tr><td colspan="4" class="macro-cell"><strong>${e(a.testo)}</strong>${f.length?` — ${fatte} di ${f.length} chiuse`:''}</td></tr>`;
+      f.forEach(c=>{ h += riga(c); });
+    } else if(!a.parentId){
+      h += riga(a);
+    }
+  });
+  return h + '</table>';
+}
+
 /* ═══════════ generazione HTML per export ═══════════ */
 function docToHtml(doc, sezione){
   const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -378,9 +413,7 @@ function docToHtml(doc, sezione){
       h += '<h2>Decisioni</h2><ul>' + doc.decisioni.map(d=>`<li>${e(d.testo)}</li>`).join('') + '</ul>';
     }
     if(doc.azioni && doc.azioni.length){
-      h += '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
-      h += doc.azioni.map(a=>`<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`).join('');
-      h += '</table>';
+      h += azioniHtml(doc.azioni);
     }
   } else {
     if(doc.data || doc.obiettivo){
@@ -391,9 +424,7 @@ function docToHtml(doc, sezione){
     }
     h += '<div>'+(doc.corpo||'')+'</div>';
     if(doc.azioni && doc.azioni.length){
-      h += '<h2>Attività</h2><table class="grid"><tr><th>Attività</th><th>Responsabile</th><th>Scadenza</th><th>Stato</th></tr>';
-      h += doc.azioni.map(a=>`<tr><td>${e(a.testo)}</td><td>${e(a.responsabile)}</td><td>${fmtDate(a.scadenza)}</td><td>${a.fatto?'Chiusa':'Aperta'}</td></tr>`).join('');
-      h += '</table>';
+      h += azioniHtml(doc.azioni);
     }
   }
   return h;
@@ -411,6 +442,7 @@ table.meta td.k{color:#7b8a83;width:110pt;font-family:Arial,sans-serif;font-size
 table.grid{border-collapse:collapse;width:100%;margin:8pt 0;font-size:10.5pt}
 table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:Arial,sans-serif;font-size:9.5pt}
 table.grid td{padding:5pt 7pt;border:1px solid #d5dcd7;vertical-align:top}
+table.grid td.macro-cell{background:#f2f5f2}
 table{border-collapse:collapse;max-width:100%}
 td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:Arial,sans-serif;font-size:10pt}
 th{background:#e9ede9;text-align:left;font-weight:bold}
@@ -447,6 +479,7 @@ const PDF_DOM_CSS = `
 .pdfdoc table{border-collapse:collapse;width:100%;margin:10px 0;font-family:Arial,sans-serif;font-size:13.5px}
 .pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:7px 9px;vertical-align:top}
 .pdfdoc th{background:#e9ede9;text-align:left;font-weight:bold}
+.pdfdoc td.macro-cell{background:#f2f5f2}
 .pdfdoc ol,.pdfdoc ul{padding-left:24px;margin:8px 0}
 .pdfdoc li{margin:6px 0}
 .pdfdoc .note{font-size:14px;color:#41504a;margin:4px 0 8px}
@@ -770,7 +803,7 @@ function AutoLine({value, onChange, placeholder, className}){
   );
 }
 
-function AgendaRow({p, i, onChange, onRemove}){
+function AgendaRow({p, i, onChange, onRemove, mv}){
   return (
     <div className="row">
       <div className="num">{i+1}</div>
@@ -780,14 +813,44 @@ function AgendaRow({p, i, onChange, onRemove}){
         <textarea className="line" value={p.note} placeholder="Note, dati da portare, domande da fare…"
           onChange={e=>onChange({...p,note:e.target.value})}/>
       </div>
+      {mv && <Frecce {...mv}/>}
       <button className="x" onClick={onRemove} title="Elimina">✕</button>
     </div>
   );
 }
 
-function ActionRow({a, onChange, onRemove}){
+function Frecce({onUp, onDown, primo, ultimo}){
   return (
-    <div className={'row'+(a.fatto?' done':'')}>
+    <div className="mover">
+      <button className="mv" onClick={onUp} disabled={primo} title="Sposta su">↑</button>
+      <button className="mv" onClick={onDown} disabled={ultimo} title="Sposta giù">↓</button>
+    </div>
+  );
+}
+
+function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv}){
+  const complete = totali>0 && fatte===totali;
+  return (
+    <div className={'row macro'+(complete?' compl':'')}>
+      <div className="body">
+        <AutoLine className="line title macro-t" value={m.testo} placeholder="Nome della macro-attività"
+          onChange={v=>onChange({...m,testo:v})}/>
+        <div className="macro-meta">
+          <span className={'conta'+(complete?' ok':'')}>
+            {totali===0 ? 'nessuna sotto-attività' : `${fatte} di ${totali} chiuse`}
+          </span>
+          <button className="link-btn" onClick={onAdd}>+ sotto-attività</button>
+        </div>
+      </div>
+      <Frecce {...mv}/>
+      <button className="x" onClick={onRemove} title="Elimina">✕</button>
+    </div>
+  );
+}
+
+function ActionRow({a, onChange, onRemove, sub, mv}){
+  return (
+    <div className={'row'+(a.fatto?' done':'')+(sub?' sub-row':'')}>
       <input type="checkbox" className="chk" checked={!!a.fatto} onChange={e=>onChange({...a,fatto:e.target.checked})}/>
       <div className="body">
         <AutoLine value={a.testo} placeholder="Cosa va fatto" onChange={v=>onChange({...a,testo:v})}/>
@@ -797,6 +860,7 @@ function ActionRow({a, onChange, onRemove}){
           <input type="date" value={a.scadenza||''} onChange={e=>onChange({...a,scadenza:e.target.value})}/>
         </div>
       </div>
+      {mv && <Frecce {...mv}/>}
       <button className="x" onClick={onRemove} title="Elimina">✕</button>
     </div>
   );
@@ -1018,9 +1082,15 @@ function App(){
 
   const azioniAperte = useMemo(()=>{
     const out=[];
-    Object.values(documenti).forEach(d=>(d.azioni||[]).forEach(a=>{
-      if(!a.fatto && (a.testo||'').trim()) out.push({...a, doc:d});
-    }));
+    Object.values(documenti).forEach(d=>{
+      const az = d.azioni||[];
+      const nomeMacro = {};
+      az.forEach(a=>{ if(a.macro) nomeMacro[a.id] = a.testo; });
+      az.forEach(a=>{
+        if(a.macro) return;                       // le macro raggruppano, non sono attività
+        if(!a.fatto && (a.testo||'').trim()) out.push({...a, doc:d, macro: a.parentId ? nomeMacro[a.parentId] : null});
+      });
+    });
     return out.sort((a,b)=>{
       if(!a.scadenza) return 1; if(!b.scadenza) return -1;
       return a.scadenza.localeCompare(b.scadenza);
@@ -1098,6 +1168,7 @@ function App(){
                 <div style={{flex:1,minWidth:0}}>
                   <div>{a.testo}</div>
                   <div className="src">
+                    {a.macro && <span className="who">{a.macro} › </span>}
                     {a.responsabile && <span className="who">{a.responsabile} · </span>}
                     <button className="link-btn" onClick={()=>{setSelSez(a.doc.sezioneId); setSelDoc(a.doc.id); setMobileView('doc');}}>
                       {a.doc.titolo||'Documento senza titolo'}
@@ -1187,6 +1258,11 @@ function App(){
               <div className="sec-h"><h3>Ordine del giorno</h3><div className="rule"></div></div>
               {(doc.agenda||[]).map((p,i)=>(
                 <AgendaRow key={p.id} p={p} i={i}
+                  mv={{
+                    onUp:()=>{ const a=doc.agenda.slice(); [a[i-1],a[i]]=[a[i],a[i-1]]; patchDoc({agenda:a}); },
+                    onDown:()=>{ const a=doc.agenda.slice(); [a[i+1],a[i]]=[a[i],a[i+1]]; patchDoc({agenda:a}); },
+                    primo: i===0, ultimo: i===doc.agenda.length-1
+                  }}
                   onChange={np=>patchDoc({agenda:doc.agenda.map(x=>x.id===p.id?np:x)})}
                   onRemove={()=>patchDoc({agenda:doc.agenda.filter(x=>x.id!==p.id)})}/>
               ))}
@@ -1207,9 +1283,12 @@ function App(){
                 <div className="row" key={d.id}>
                   <div className="num">{i+1}</div>
                   <div className="body">
-                    <input className="line" value={d.testo} placeholder="Cosa è stato deciso"
-                      onChange={e=>patchDoc({decisioni:doc.decisioni.map(x=>x.id===d.id?{...x,testo:e.target.value}:x)})}/>
+                    <AutoLine value={d.testo} placeholder="Cosa è stato deciso"
+                      onChange={v=>patchDoc({decisioni:doc.decisioni.map(x=>x.id===d.id?{...x,testo:v}:x)})}/>
                   </div>
+                  <Frecce primo={i===0} ultimo={i===doc.decisioni.length-1}
+                    onUp={()=>{ const a=doc.decisioni.slice(); [a[i-1],a[i]]=[a[i],a[i-1]]; patchDoc({decisioni:a}); }}
+                    onDown={()=>{ const a=doc.decisioni.slice(); [a[i+1],a[i]]=[a[i],a[i+1]]; patchDoc({decisioni:a}); }}/>
                   <button className="x" onClick={()=>patchDoc({decisioni:doc.decisioni.filter(x=>x.id!==d.id)})}>✕</button>
                 </div>
               ))}
@@ -1220,14 +1299,84 @@ function App(){
           )}
 
           <div className="sec-h"><h3>Attività</h3><div className="rule"></div></div>
-          {(doc.azioni||[]).map(a=>(
-            <ActionRow key={a.id} a={a}
-              onChange={na=>patchDoc({azioni:doc.azioni.map(x=>x.id===a.id?na:x)})}
-              onRemove={()=>patchDoc({azioni:doc.azioni.filter(x=>x.id!==a.id)})}/>
-          ))}
-          <button className="add-line" onClick={()=>patchDoc({azioni:[...(doc.azioni||[]),{id:uid(),testo:'',responsabile:'',scadenza:'',fatto:false}]})}>
-            + Aggiungi attività
-          </button>
+          {(() => {
+            const az = doc.azioni || [];
+            const set = (nuove) => patchDoc({azioni:nuove});
+            const upd = (id, nv) => set(az.map(x=>x.id===id?nv:x));
+            const figlie = (mid) => az.filter(x=>!x.macro && x.parentId===mid);
+            const nuovaAz = (parentId=null) => ({id:uid(),testo:'',responsabile:'',scadenza:'',fatto:false,parentId});
+
+            // blocchi di primo livello: una macro con le sue figlie, oppure un'attività singola
+            const blocchi = [];
+            az.forEach(a=>{
+              if(a.macro) blocchi.push({capo:a, figlie:figlie(a.id)});
+              else if(!a.parentId) blocchi.push({capo:a, figlie:[]});
+            });
+            const appiattisci = (bl) => bl.reduce((acc,b)=>acc.concat([b.capo], b.figlie), []);
+
+            const muoviBlocco = (i, d) => {
+              const j = i + d;
+              if(j<0 || j>=blocchi.length) return;
+              const bl = blocchi.slice();
+              [bl[i], bl[j]] = [bl[j], bl[i]];
+              set(appiattisci(bl));
+            };
+            const muoviFiglia = (bi, fi, d) => {
+              const j = fi + d;
+              const b = blocchi[bi];
+              if(j<0 || j>=b.figlie.length) return;
+              const bl = blocchi.map((x,k)=> k===bi ? {capo:x.capo, figlie:x.figlie.slice()} : x);
+              const f = bl[bi].figlie;
+              [f[fi], f[j]] = [f[j], f[fi]];
+              set(appiattisci(bl));
+            };
+
+            return (
+              <>
+                {blocchi.map((b, i) => {
+                  const mvBlocco = {
+                    onUp:()=>muoviBlocco(i,-1), onDown:()=>muoviBlocco(i,1),
+                    primo: i===0, ultimo: i===blocchi.length-1
+                  };
+                  if(!b.capo.macro){
+                    return (
+                      <ActionRow key={b.capo.id} a={b.capo} mv={mvBlocco}
+                        onChange={nv=>upd(b.capo.id,nv)}
+                        onRemove={()=>set(az.filter(x=>x.id!==b.capo.id))}/>
+                    );
+                  }
+                  return (
+                    <div key={b.capo.id}>
+                      <MacroRow m={b.capo} totali={b.figlie.length} fatte={b.figlie.filter(x=>x.fatto).length}
+                        mv={mvBlocco}
+                        onChange={nv=>upd(b.capo.id,nv)}
+                        onAdd={()=>{
+                          const bl = blocchi.map((x,k)=> k===i ? {capo:x.capo, figlie:x.figlie.concat([nuovaAz(b.capo.id)])} : x);
+                          set(appiattisci(bl));
+                        }}
+                        onRemove={()=>{
+                          if(b.figlie.length && !confirm(`Eliminare "${b.capo.testo||'la macro-attività'}" e le sue ${b.figlie.length} sotto-attività?`)) return;
+                          set(az.filter(x=>x.id!==b.capo.id && x.parentId!==b.capo.id));
+                        }}/>
+                      {b.figlie.map((c, fi)=>(
+                        <ActionRow key={c.id} a={c} sub
+                          mv={{
+                            onUp:()=>muoviFiglia(i,fi,-1), onDown:()=>muoviFiglia(i,fi,1),
+                            primo: fi===0, ultimo: fi===b.figlie.length-1
+                          }}
+                          onChange={nv=>upd(c.id,nv)}
+                          onRemove={()=>set(az.filter(x=>x.id!==c.id))}/>
+                      ))}
+                    </div>
+                  );
+                })}
+                <div className="add-row">
+                  <button className="add-line" onClick={()=>set([...az, nuovaAz()])}>+ Aggiungi attività</button>
+                  <button className="add-line alt" onClick={()=>set([...az, {id:uid(),testo:'',macro:true}])}>+ Aggiungi macro-attività</button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </>
     );
