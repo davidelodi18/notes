@@ -211,6 +211,26 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button:hover{background:#255840;color:#fff;border-color:#255840}
 .peso{font-size:12px;color:var(--amber);padding:6px 0}
 
+/* cruscotto spazio */
+.spazio-hero{border:1px solid var(--line);border-radius:8px;padding:20px;margin:18px 0 22px;background:#fbfcfb}
+.spazio-num{font-family:var(--serif);font-size:34px;line-height:1;letter-spacing:-.02em}
+.spazio-num small{font-family:var(--sans);font-size:14px;color:var(--muted);letter-spacing:0;margin-left:6px}
+.barra{height:9px;background:var(--line-soft);border-radius:20px;overflow:hidden;margin:14px 0 8px}
+.barra i{display:block;height:100%;background:var(--accent);border-radius:20px}
+.barra i.warn{background:var(--amber)}
+.barra i.alarm{background:var(--red)}
+.spazio-sub{font-size:12.5px;color:var(--muted)}
+.quote{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0 6px}
+.quota{border:1px solid var(--line-soft);border-radius:var(--radius);padding:12px 14px}
+.quota .k{font-size:11.5px;color:var(--muted);margin-bottom:3px}
+.quota .v{font-size:17px;font-variant-numeric:tabular-nums}
+.top-doc{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.top-doc .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-doc .p{font-variant-numeric:tabular-nums;color:var(--ink-soft);font-size:13px;white-space:nowrap}
+.top-doc .img{font-size:11.5px;color:var(--amber);white-space:nowrap}
+.nota-box{background:var(--accent-soft);border-radius:var(--radius);padding:12px 14px;font-size:12.5px;
+  color:#255840;margin-top:20px;line-height:1.55}
+
 /* ── azioni globali ─────────────────────────────────── */
 .actions-wrap{max-width:820px;margin:0 auto;padding:26px 28px 80px}
 .act{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line-soft)}
@@ -613,6 +633,22 @@ function compressImage(file, maxPx=1200, quality=0.78){
   });
 }
 const kb = s => Math.round((s||'').length*0.75/1024);
+
+/* misura in byte reali (UTF-8) di un valore qualsiasi */
+const ENC = new TextEncoder();
+const pesoDi = v => { try{ return ENC.encode(typeof v==='string'? v : JSON.stringify(v)).length; }catch(e){ return 0; } };
+const pesoImmagini = html => {
+  let tot = 0;
+  const re = /data:image\/[a-zA-Z]+;base64,([^"')\s]+)/g;
+  let m; while((m = re.exec(html||''))) tot += Math.round(m[1].length*0.75);
+  return tot;
+};
+const fmtPeso = b => {
+  if(b < 1024) return b + ' B';
+  if(b < 1024*1024) return (b/1024).toFixed(1).replace('.',',') + ' KB';
+  return (b/1048576).toFixed(2).replace('.',',') + ' MB';
+};
+const LIMITE_DB = 1073741824;   // 1 GB, piano gratuito Spark
 
 /* ═══════════ editor rich text ═══════════ */
 function RichText({value, onChange, placeholder, docKey}){
@@ -1107,7 +1143,7 @@ function App(){
         || stripHtml(d.corpo).toLowerCase().includes(s)
         || (d.partecipanti||'').toLowerCase().includes(s)
         || (d.agenda||[]).some(p=>(p.titolo+' '+p.note).toLowerCase().includes(s)));
-    } else if(selSez && selSez!=='ATTIVITA'){
+    } else if(selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO'){
       l = l.filter(d=>d.sezioneId===selSez);
     }
     return l.sort((a,b)=>{
@@ -1136,6 +1172,18 @@ function App(){
       return a.scadenza.localeCompare(b.scadenza);
     });
   },[documenti]);
+
+  const spazio = useMemo(()=>{
+    const docs = Object.values(documenti);
+    const dettagli = docs.map(d=>{
+      const tot = pesoDi(d);
+      const img = pesoImmagini(d.corpo);
+      return {doc:d, tot, img};
+    }).sort((a,b)=>b.tot-a.tot);
+    const totale = dettagli.reduce((s,x)=>s+x.tot,0) + pesoDi(sezioni);
+    const immagini = dettagli.reduce((s,x)=>s+x.img,0);
+    return {dettagli, totale, immagini, testo: Math.max(0, totale-immagini), n: docs.length};
+  },[documenti,sezioni]);
 
   const doc = selDoc ? documenti[selDoc] : null;
   const sezCorrente = doc ? sezioni[doc.sezioneId] : (selSez!=='ATTIVITA'? sezioni[selSez] : null);
@@ -1190,6 +1238,64 @@ function App(){
 
   /* ── colonna documento ── */
   const renderDoc = () => {
+    if(selSez==='SPAZIO'){
+      const perc = spazio.totale / LIMITE_DB * 100;
+      const cls = perc > 80 ? ' alarm' : perc > 50 ? ' warn' : '';
+      const quotaImg = spazio.totale ? Math.round(spazio.immagini/spazio.totale*100) : 0;
+      return (
+        <div className="actions-wrap">
+          <h1 style={{fontFamily:'var(--serif)',fontSize:30,margin:'0 0 4px'}}>Spazio</h1>
+          <p style={{color:'var(--muted)',marginTop:0}}>Quanto stanno occupando i tuoi documenti sul database.</p>
+
+          <div className="spazio-hero">
+            <div className="spazio-num">
+              {fmtPeso(spazio.totale)}<small>su 1 GB disponibili</small>
+            </div>
+            <div className="barra"><i className={cls} style={{width: Math.max(0.4, Math.min(100, perc))+'%'}}></i></div>
+            <div className="spazio-sub">
+              {perc < 0.1 ? 'Meno dello 0,1% dello spazio' : `${perc.toFixed(perc<1?2:1).replace('.',',')}% dello spazio`}
+              {' · '}restano {fmtPeso(Math.max(0, LIMITE_DB - spazio.totale))}
+            </div>
+          </div>
+
+          <div className="quote">
+            <div className="quota"><div className="k">Documenti</div><div className="v">{spazio.n}</div></div>
+            <div className="quota"><div className="k">Testo</div><div className="v">{fmtPeso(spazio.testo)}</div></div>
+            <div className="quota"><div className="k">Immagini</div><div className="v">{fmtPeso(spazio.immagini)}</div></div>
+            <div className="quota"><div className="k">Peso medio</div><div className="v">{spazio.n? fmtPeso(Math.round(spazio.totale/spazio.n)) : '—'}</div></div>
+          </div>
+
+          {spazio.immagini > 0 && (
+            <p className="spazio-sub" style={{marginTop:4}}>
+              Le foto sono il {quotaImg}% del totale: è quasi sempre lì che cresce lo spazio.
+            </p>
+          )}
+
+          <div className="sec-h"><h3>Documenti più pesanti</h3><div className="rule"></div></div>
+          {spazio.dettagli.length===0 && <div className="empty"><strong>Ancora niente</strong>Il conto parte dal primo documento.</div>}
+          {spazio.dettagli.slice(0,8).map(x=>(
+            <div className="top-doc" key={x.doc.id}>
+              <button className="link-btn t" style={{textAlign:'left'}}
+                onClick={()=>{setSelSez(x.doc.sezioneId); setSelDoc(x.doc.id); setMobileView('doc');}}>
+                {x.doc.titolo || 'Senza titolo'}
+              </button>
+              {x.img > 0 && <span className="img">{fmtPeso(x.img)} di foto</span>}
+              <span className="p">{fmtPeso(x.tot)}</span>
+            </div>
+          ))}
+
+          <div className="nota-box">
+            Il conto è una stima calcolata sui documenti che hai qui: il valore ufficiale sta nella console
+            Firebase, sotto Realtime Database → Utilizzo, e sarà un po' più alto perché include anche
+            la struttura interna del database.<br/><br/>
+            Oltre al limite di 1 GB, il piano gratuito dà 10 GB di traffico al mese. Ogni volta che apri
+            l'app scarichi tutti i documenti, quindi con appunti di solo testo sei lontanissimo dal limite,
+            mentre molte foto pesanti lo consumano più in fretta.
+          </div>
+        </div>
+      );
+    }
+
     if(selSez==='ATTIVITA'){
       return (
         <div className="actions-wrap">
@@ -1472,6 +1578,11 @@ function App(){
               <span className="name">Attività aperte</span>
               <span className="n">{azioniAperte.length||''}</span>
             </button>
+            <button className={'nav-item'+(selSez==='SPAZIO'?' on':'')} onClick={()=>{setSelSez('SPAZIO');setSelDoc(null);setQ('');setMobileView('doc');}}>
+              <span className="chip" style={{background:'var(--muted)'}}></span>
+              <span className="name">Spazio</span>
+              <span className="n">{fmtPeso(spazio.totale)}</span>
+            </button>
           </div>
           <div className="nav-group">
             <div className="nav-label">Sezioni</div>
@@ -1496,8 +1607,9 @@ function App(){
       {/* colonna elenco */}
       <div className={'col-list'+mobileHide('list')}>
         <div className="list-head">
-          <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
+          <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : selSez==='SPAZIO'? 'Spazio' : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
           <p>{q.trim()? `${docList.length} documenti trovati`
+             : selSez==='SPAZIO' ? 'Occupazione del database'
              : selSez==='ATTIVITA' ? 'Vista trasversale'
              : (sezCorrente&&sezCorrente.descrizione) || `${docList.length} documenti`}</p>
           <input className="search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca in tutto il quaderno…"/>
