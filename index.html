@@ -232,6 +232,11 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button{border:1px solid transparent;background:var(--accent-soft);border-radius:4px;padding:4px 9px;
   font-size:12.5px;color:#255840;line-height:1.2}
 .rt-ctx button:hover{background:#255840;color:#fff}
+.rt-ctx{flex-wrap:wrap;max-width:min(420px,92vw)}
+.rt-ctx .sep{width:1px;align-self:stretch;background:#d5e3da;margin:0 2px}
+.ink-cell{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #c9ded2;
+  background:linear-gradient(135deg,#fcf3b0 50%,#d6e8f5 50%);vertical-align:-2px}
+.rt-ctx .pal{top:100%;left:0;margin-top:6px}
 .rt-ctx button.del{background:#f7e9e8;color:var(--red)}
 .rt-ctx button.del:hover{background:var(--red);color:#fff}
 .peso{font-size:12px;color:var(--amber);padding:6px 0}
@@ -767,7 +772,12 @@ function RichText({value, onChange, placeholder, docKey}){
   useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
   useEffect(()=>{
     if(!inTable) return;
-    const h = () => checkCtx();
+    let att = false;
+    const h = () => {
+      if(att) return;
+      att = true;
+      requestAnimationFrame(()=>{ att = false; checkCtx(); });
+    };
     window.addEventListener('scroll', h, true);
     window.addEventListener('resize', h);
     return ()=>{ window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); };
@@ -814,7 +824,9 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const coloreScelto = (v) => {
     ricorda(v);
-    if(targetRef.current==='evid') evidenzia(v); else cmdCss('foreColor', v);
+    if(targetRef.current==='cella') coloraCelle(v);
+    else if(targetRef.current==='evid') evidenzia(v);
+    else cmdCss('foreColor', v);
   };
 
   const evidenzia = (v) => {
@@ -889,6 +901,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   const checkCtx = () => {
     const cell = cellFromSelection();
+    if(cell) cellaRef.current = cell;
     setInTable(!!cell);
     if(!cell){ setTblBox(null); return; }
     const tab = cell.closest('table');
@@ -967,8 +980,10 @@ function RichText({value, onChange, placeholder, docKey}){
     cmd('insertHTML', h);
   };
 
+  const cellaAttiva = () => cellFromSelection() || (cellaRef.current && cellaRef.current.isConnected ? cellaRef.current : null);
+
   const addRow = () => {
-    const cell = cellFromSelection(); if(!cell) return;
+    const cell = cellaAttiva(); if(!cell) return;
     const tr = cell.parentNode, tbody = tr.parentNode;
     const nr = document.createElement('tr');
     for(let i=0;i<tr.children.length;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; nr.appendChild(td); }
@@ -979,15 +994,24 @@ function RichText({value, onChange, placeholder, docKey}){
       body.insertBefore(nr, body.firstChild);
     } else { tbody.insertBefore(nr, tr.nextSibling); }
     emit();
+    vaiA(nr.children[Array.prototype.indexOf.call(tr.children, cell)] || nr.children[0]);
   };
   const delRow = () => {
-    const cell = cellFromSelection(); if(!cell) return;
+    const cell = cellaAttiva(); if(!cell) return;
     const tr = cell.parentNode;
     if(tr.parentNode.tagName==='THEAD'){ alert('L\'intestazione non si elimina.'); return; }
+    const tab = cell.closest('table');
+    const idx = Array.prototype.indexOf.call(tr.children, cell);
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const ri = righe.indexOf(tr);
+    const dopo = righe[ri+1] || righe[ri-1];        // dove portare il cursore
     tr.remove(); emit();
+    if(dopo && dopo.children[idx]) vaiA(dopo.children[idx]);
+    else if(dopo) vaiA(dopo.children[0]);
+    else setTblBox(null);
   };
   const addCol = () => {
-    const cell = cellFromSelection(); if(!cell) return;
+    const cell = cellaAttiva(); if(!cell) return;
     const idx = Array.prototype.indexOf.call(cell.parentNode.children, cell);
     const table = cell.closest('table');
     table.querySelectorAll('tr').forEach(tr=>{
@@ -999,16 +1023,76 @@ function RichText({value, onChange, placeholder, docKey}){
     emit();
   };
   const delCol = () => {
-    const cell = cellFromSelection(); if(!cell) return;
+    const cell = cellaAttiva(); if(!cell) return;
     const idx = Array.prototype.indexOf.call(cell.parentNode.children, cell);
     const table = cell.closest('table');
-    if(cell.parentNode.children.length<=1){ table.remove(); emit(); return; }
+    if(cell.parentNode.children.length<=1){ table.remove(); emit(); setTblBox(null); return; }
+    const riga = cell.parentNode;
     table.querySelectorAll('tr').forEach(tr=>{ if(tr.children[idx]) tr.children[idx].remove(); });
     emit();
+    const resta = riga.children[idx] || riga.children[idx-1] || riga.children[0];
+    if(resta) vaiA(resta); else setTblBox(null);
   };
   const delTable = () => {
-    const cell = cellFromSelection(); if(!cell) return;
-    if(confirm('Eliminare tutta la tabella?')){ cell.closest('table').remove(); emit(); }
+    const cell = cellaAttiva(); if(!cell) return;
+    if(confirm('Eliminare tutta la tabella?')){
+      cell.closest('table').remove(); emit();
+      cellaRef.current = null; setInTable(false); setTblBox(null);
+    }
+  };
+
+  /* annulla e ripeti */
+  const annulla = () => { ref.current.focus(); ripristinaRange(); document.execCommand('undo'); emit(); };
+  const ripeti  = () => { ref.current.focus(); ripristinaRange(); document.execCommand('redo'); emit(); };
+
+  /* colore di sfondo della cella (o delle celle selezionate) */
+  const cellaRef = useRef(null);
+  const celleCoinvolte = () => {
+    const c = cellaAttiva();
+    if(!c) return [];
+    const sel = window.getSelection();
+    if(sel && sel.rangeCount && !sel.isCollapsed){
+      const tab = c.closest('table');
+      const tutte = Array.from(tab.querySelectorAll('td,th'));
+      const dentro = tutte.filter(td=>sel.containsNode(td, true));
+      if(dentro.length) return dentro;
+    }
+    return [c];
+  };
+  const coloraCelle = (v) => {
+    celleCoinvolte().forEach(td=>{
+      if(v) td.style.backgroundColor = v; else td.style.removeProperty('background-color');
+    });
+    emit(); setPal(null);
+  };
+
+  /* larghezza della colonna in cui si trova il cursore */
+  const larghezzaColonna = (delta) => {
+    const c = cellaAttiva();
+    if(!c) return;
+    const idx = Array.prototype.indexOf.call(c.parentNode.children, c);
+    const tab = c.closest('table');
+    const base = c.getBoundingClientRect().width;
+    const nuova = Math.max(45, Math.round(base + delta));
+    tab.querySelectorAll('tr').forEach(tr=>{
+      const cell = tr.children[idx];
+      if(cell) cell.style.width = nuova + 'px';
+    });
+    emit(); setTimeout(checkCtx, 0);
+  };
+  const larghezzaAuto = () => {
+    const c = cellaAttiva();
+    if(!c) return;
+    const tab = c.closest('table');
+    tab.querySelectorAll('td,th').forEach(x=>x.style.removeProperty('width'));
+    emit(); setTimeout(checkCtx, 0);
+  };
+
+  /* a capo dentro la cella, per chi non ha Maiusc+Invio (telefono) */
+  const aCapoInCella = () => {
+    ref.current.focus(); ripristinaRange();
+    document.execCommand('insertLineBreak');
+    emit();
   };
 
   const pickImage = () => fileRef.current.click();
@@ -1048,6 +1132,9 @@ function RichText({value, onChange, placeholder, docKey}){
   return (
     <div>
       <div className="rt-tools">
+        <button onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={annulla} title="Annulla (Ctrl/Cmd+Z)">↶</button>
+        <button onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={ripeti} title="Ripeti (Ctrl/Cmd+Maiusc+Z)">↷</button>
+        <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={()=>cmd('bold')} title="Grassetto"><b>B</b></button>
         <button onClick={()=>cmd('italic')} title="Corsivo"><i>I</i></button>
         <button onClick={()=>cmd('underline')} title="Sottolineato"><u>U</u></button>
@@ -1111,12 +1198,30 @@ function RichText({value, onChange, placeholder, docKey}){
 
       <div className="rt-wrap" ref={wrapRef}>
       {inTable && tblBox && (
-        <div className="rt-ctx" style={{top:tblBox.top, left:tblBox.left}} onMouseDown={e=>e.preventDefault()}>
+        <div className="rt-ctx" style={{top:tblBox.top, left:tblBox.left}}
+          onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={addRow}>+ riga</button>
           <button onClick={delRow}>− riga</button>
           <button onClick={addCol}>+ col</button>
           <button onClick={delCol}>− col</button>
+          <span className="sep"></span>
+          <button onClick={()=>larghezzaColonna(-30)} title="Stringi la colonna">→←</button>
+          <button onClick={()=>larghezzaColonna(30)} title="Allarga la colonna">←→</button>
+          <button onClick={larghezzaAuto} title="Larghezza automatica">auto</button>
+          <span className="sep"></span>
+          <button onClick={()=>setPal(pal==='cella'?null:'cella')} title="Colore della cella">
+            <span className="ink-cell"></span>
+          </button>
+          <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
+          <span className="sep"></span>
           <button className="del" onClick={delTable}>elimina</button>
+
+          {pal==='cella' && (
+            <Palette colori={COLORI_EVID} evid etichetta="Togli il colore" recenti={recenti}
+              onCustom={()=>{ targetRef.current='cella'; salvaRange(); colorRef.current.value='#e9ede9'; colorRef.current.click(); }}
+              onPick={v=>{ ricorda(v); coloraCelle(v); }}
+              onClear={()=>coloraCelle(null)}/>
+          )}
         </div>
       )}
 
