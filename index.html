@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "3 set · pennello e colori";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "3 set · formato celle";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -826,7 +826,53 @@ function RichText({value, onChange, placeholder, docKey}){
     registra(html, subito === true);
     onChange(html);
   };
-  const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
+  const STILE_CMD = {
+    bold: {fontWeight:'bold'}, italic: {fontStyle:'italic'}, underline: {textDecoration:'underline'}
+  };
+  const cmd = (c,v)=>{
+    if(STILE_CMD[c] && applicaStileCelle(STILE_CMD[c], true)) return;   // celle selezionate
+    ref.current.focus(); document.execCommand(c,false,v||null); emit();
+  };
+
+  /* applica stili alle celle selezionate, senza entrarci dentro (come nel foglio di calcolo) */
+  const celleScelte = () => (modo === 'sel' ? selRef.current.filter(td=>td.isConnected) : []);
+  const applicaStileCelle = (stile, alterna) => {
+    const celle = celleScelte();
+    if(!celle.length) return false;
+    celle.forEach(td=>{
+      Object.entries(stile).forEach(([k,v])=>{
+        const attuale = td.style[k];
+        if(alterna && attuale === v) td.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase()));
+        else td.style[k] = v;
+      });
+    });
+    emit(true);
+    return true;
+  };
+
+  /* applica stili al testo selezionato avvolgendolo, senza dipendere dai comandi del browser */
+  const applicaStileTesto = (stile) => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || sel.isCollapsed) return false;
+    const r = sel.getRangeAt(0);
+    if(!ref.current.contains(r.commonAncestorContainer)) return false;
+    const span = document.createElement('span');
+    Object.entries(stile).forEach(([k,v])=>{ if(v) span.style[k] = v; });
+    try{
+      const frag = r.extractContents();
+      // tolgo dagli elementi interni le proprietà che sto per imporre, altrimenti vincono loro
+      frag.querySelectorAll && Array.from(frag.querySelectorAll('*')).forEach(el=>{
+        Object.keys(stile).forEach(k=>el.style && el.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase())));
+      });
+      span.appendChild(frag);
+      r.insertNode(span);
+      const nuovo = document.createRange();
+      nuovo.selectNodeContents(span);
+      sel.removeAllRanges(); sel.addRange(nuovo);
+    }catch(err){ return false; }
+    emit(true);
+    return true;
+  };
 
   /* il tocco su un pulsante fa perdere la selezione: la salvo e la rimetto */
   const rangeRef = useRef(null);
@@ -845,7 +891,9 @@ function RichText({value, onChange, placeholder, docKey}){
 
   /* colore del testo ed evidenziatore: servono gli stili CSS, non i vecchi tag <font> */
   const cmdCss = (c,v)=>{
+    if(c === 'foreColor' && applicaStileCelle({color:v})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
+    if(c === 'foreColor' && applicaStileTesto({color:v})) { setPal(null); return; }
     try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
     document.execCommand(c, false, v);
     try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
@@ -866,7 +914,9 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const evidenzia = (v) => {
+    if(applicaStileCelle({backgroundColor: v === 'transparent' ? '' : v})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
+    if(v !== 'transparent' && applicaStileTesto({backgroundColor:v})) { setPal(null); return; }
     try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
     if(!document.execCommand('hiliteColor', false, v)) document.execCommand('backColor', false, v);
     try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
@@ -894,6 +944,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const setInterlinea = (v) => {
+    if(applicaStileCelle({lineHeight: v || ''})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
     const bl = blocchiSelezionati();
     if(!bl.length){ setPal(null); return; }
@@ -1393,41 +1444,63 @@ function RichText({value, onChange, placeholder, docKey}){
   /* copia formato del testo: grassetto, corsivo, colore, evidenziatore */
   const fmtTesto = useRef(null);
   const [fmtTPreso,setFmtTPreso] = useState(false);
+  const eGrassetto = (w) => w === 'bold' || w === 'bolder' || parseInt(w,10) >= 600;
+  const vuoto = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+
   const copiaFormatoTesto = () => {
     salvaRange();
-    const sel = window.getSelection();
-    let n = sel && sel.anchorNode;
-    if(n && n.nodeType === 3) n = n.parentElement;
-    if(!n || !ref.current.contains(n)){ alert('Metti prima il cursore nel testo di cui copiare il formato.'); return; }
+    let n = null;
+    const cella = (modo === 'sel') ? (fuocoRef.current || attivaRef.current) : null;
+    if(cella && cella.isConnected){
+      n = cella;                                   // sto sopra una cella: copio il formato della cella
+    } else {
+      const sel = window.getSelection();
+      n = sel && sel.anchorNode;
+      if(n && n.nodeType === 3) n = n.parentElement;
+    }
+    if(!n || !ref.current.contains(n)){ alert('Scegli prima la cella, o metti il cursore nel testo, di cui copiare il formato.'); return; }
     const st = window.getComputedStyle(n);
-    const sfondo = st.backgroundColor;
+    const inl = n.style || {};
+    // lo stile scritto sull'elemento è più affidabile di quello calcolato
+    const peso = inl.fontWeight || st.fontWeight;
+    const corsivo = inl.fontStyle || st.fontStyle;
+    const sotto = inl.textDecoration || st.textDecorationLine || '';
+    const colore = inl.color || st.color;
+    const sfondo = inl.backgroundColor || st.backgroundColor;
     fmtTesto.current = {
-      bold: parseInt(st.fontWeight,10) >= 600,
-      italic: st.fontStyle === 'italic',
-      underline: (st.textDecorationLine||'').includes('underline'),
-      color: st.color,
-      bg: (!sfondo || sfondo === 'rgba(0, 0, 0, 0)' || sfondo === 'transparent') ? null : sfondo
+      bold: eGrassetto(peso),
+      italic: corsivo === 'italic',
+      underline: (sotto||'').includes('underline'),
+      color: vuoto(colore) ? '' : colore,
+      bg: vuoto(sfondo) ? null : sfondo
     };
     setFmtTPreso(true);
   };
   const incollaFormatoTesto = (daSelezione) => {
     const f = fmtTesto.current;
     if(!f){ copiaFormatoTesto(); return; }
+
+    // se ho delle celle selezionate, il formato va su quelle
+    const stile = {
+      fontWeight: f.bold ? 'bold' : '',
+      fontStyle: f.italic ? 'italic' : '',
+      textDecoration: f.underline ? 'underline' : '',
+      color: f.color || '',
+      backgroundColor: f.bg || ''
+    };
+    if(applicaStileCelle(stile)){ setFmtTPreso(false); return; }
+
     if(!daSelezione){ ref.current.focus(); ripristinaRange(); }
     const sel = window.getSelection();
     if(!sel || sel.isCollapsed){
-      if(daSelezione) return;                       // niente selezione: aspetto ancora
+      if(daSelezione) return;                       // niente selezione: resto in attesa
       alert('Seleziona il testo a cui applicare il formato.'); return;
     }
-    try{ document.execCommand('styleWithCSS', false, true); }catch(err){}
-    ['bold','italic','underline'].forEach(c=>{
-      try{ if(document.queryCommandState(c) !== f[c]) document.execCommand(c); }catch(err){}
-    });
-    if(f.color) document.execCommand('foreColor', false, f.color);
-    if(!document.execCommand('hiliteColor', false, f.bg || 'transparent'))
-      document.execCommand('backColor', false, f.bg || 'transparent');
-    try{ document.execCommand('styleWithCSS', false, false); }catch(err){}
-    emit(); setFmtTPreso(false);
+    const messo = {};
+    Object.entries(stile).forEach(([k,v])=>{ if(v) messo[k] = v; });
+    if(!Object.keys(messo).length){ setFmtTPreso(false); return; }
+    applicaStileTesto(messo);
+    setFmtTPreso(false);
   };
 
   /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
@@ -1705,10 +1778,6 @@ function RichText({value, onChange, placeholder, docKey}){
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td)) estendiFinoA(td);
         }}
-        onMouseUp={()=>{
-          trascina.current = false;
-          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
-        }}
         onMouseLeave={()=>{ trascina.current = false; }}
         onTouchStart={e=>{
           if(modo !== 'sel') return;
@@ -1725,7 +1794,6 @@ function RichText({value, onChange, placeholder, docKey}){
             estendiFinoA(td);
           }
         }}
-        onTouchEnd={()=>{ trascina.current = false; }}
         onContextMenu={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td) && (e.ctrlKey || modo === 'sel')) e.preventDefault();
@@ -1746,8 +1814,16 @@ function RichText({value, onChange, placeholder, docKey}){
           scorciatoiaElenco(e);
         }}
         onKeyUp={()=>{ checkCtx(); salvaRange(); }}
-        onMouseUp={()=>{ checkCtx(); salvaRange(); }}
-        onTouchEnd={salvaRange}
+        onMouseUp={()=>{
+          trascina.current = false;
+          checkCtx(); salvaRange();
+          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
+        }}
+        onTouchEnd={()=>{
+          trascina.current = false;
+          salvaRange();
+          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
+        }}
         onBlur={salvaRange}
         onFocus={checkCtx}
         onPaste={e=>{
