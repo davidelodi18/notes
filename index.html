@@ -1630,11 +1630,14 @@ function RichText({value, onChange, placeholder, docKey}){
           }
           if(modo === 'edit' && td === cellaRef.current) return;   // sto già scrivendo qui
           e.preventDefault();
+          const conModificatore = e.ctrlKey || e.metaKey || e.shiftKey;
           selezionaCella(td, {aggiungi: multi || e.ctrlKey || e.metaKey, estendi: e.shiftKey});
-          if(!multi) trascina.current = true;
+          // il trascinamento ridisegna un rettangolo: con Ctrl/Cmd cancellerebbe la scelta appena fatta
+          trascina.current = !multi && !conModificatore;
         }}
         onMouseMove={e=>{
           if(!trascina.current || modo !== 'sel') return;
+          if(e.ctrlKey || e.metaKey) return;
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td)) estendiFinoA(td);
         }}
@@ -1656,6 +1659,10 @@ function RichText({value, onChange, placeholder, docKey}){
           }
         }}
         onTouchEnd={()=>{ trascina.current = false; }}
+        onContextMenu={e=>{
+          const td = e.target.closest && e.target.closest('td,th');
+          if(td && ref.current.contains(td) && (e.ctrlKey || modo === 'sel')) e.preventDefault();
+        }}
         onDoubleClick={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
