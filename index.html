@@ -184,7 +184,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .add-line:hover{text-decoration:underline}
 .chk{width:16px;height:16px;margin-top:8px;flex:none;accent-color:var(--accent)}
 
-.rt-tools{display:flex;gap:2px;padding:4px 0 8px;border-bottom:1px solid var(--line-soft);margin-bottom:10px;flex-wrap:wrap}
+.rt-tools{display:flex;gap:2px;padding:6px 0 8px;border-bottom:1px solid var(--line-soft);margin-bottom:10px;
+  flex-wrap:wrap;position:sticky;top:46px;z-index:8;background:rgba(255,255,255,.96);backdrop-filter:blur(6px)}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover{background:var(--line-soft);color:var(--ink)}
 .pal-wrap{position:relative;display:inline-flex}
@@ -224,11 +225,15 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt figure{margin:16px 0;text-align:center}
 .rt img{max-width:100%;height:auto;border-radius:4px;display:block;margin:0 auto}
 .rt figcaption{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:5px}
-.rt-ctx{display:flex;gap:4px;align-items:center;padding:5px 8px;margin:0 0 8px;background:var(--accent-soft);
-  border-radius:var(--radius);font-size:12.5px;color:#255840;flex-wrap:wrap}
-.rt-ctx b{font-weight:600;margin-right:4px}
-.rt-ctx button{border:1px solid #c9ded2;background:#fff;border-radius:4px;padding:2px 8px;font-size:12.5px;color:#255840}
-.rt-ctx button:hover{background:#255840;color:#fff;border-color:#255840}
+.rt-wrap{position:relative}
+.rt-ctx{position:absolute;z-index:7;display:flex;gap:3px;align-items:center;padding:4px;background:var(--paper);
+  border:1px solid #c9ded2;border-radius:var(--radius);box-shadow:0 3px 12px rgba(23,33,29,.14);
+  font-size:12.5px;color:#255840;white-space:nowrap}
+.rt-ctx button{border:1px solid transparent;background:var(--accent-soft);border-radius:4px;padding:4px 9px;
+  font-size:12.5px;color:#255840;line-height:1.2}
+.rt-ctx button:hover{background:#255840;color:#fff}
+.rt-ctx button.del{background:#f7e9e8;color:var(--red)}
+.rt-ctx button.del:hover{background:var(--red);color:#fff}
 .peso{font-size:12px;color:var(--amber);padding:6px 0}
 
 /* cruscotto spazio */
@@ -326,7 +331,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   .chk{width:20px;height:20px;margin-top:9px}
   .add-line{padding:11px 0}
 
-  .rt-tools{overflow-x:auto;overflow-y:visible;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:10px}
+  .rt-tools{top:44px;overflow-x:auto;overflow-y:visible;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:10px}
   .pal{position:fixed;left:10px;right:10px;bottom:14px;top:auto;margin:0;min-width:0;z-index:80;
     padding:14px;box-shadow:0 -6px 30px rgba(23,33,29,.28)}
   .pal-grid{grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}
@@ -336,6 +341,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   .rt-tools button{flex:none;padding:7px 10px}
   .rt{font-size:16.5px;min-height:180px}
   .rt table{font-size:12.5px;display:block;overflow-x:auto;white-space:nowrap}
+  .rt-ctx button{padding:7px 10px;font-size:13px}
 
   .act{padding:12px 0}
   .list-head{padding:12px}
@@ -760,6 +766,13 @@ function RichText({value, onChange, placeholder, docKey}){
 
   useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
   useEffect(()=>{
+    if(!inTable) return;
+    const h = () => checkCtx();
+    window.addEventListener('scroll', h, true);
+    window.addEventListener('resize', h);
+    return ()=>{ window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); };
+  },[inTable]);
+  useEffect(()=>{
     if(!pal) return;
     const h = () => setPal(null);
     document.addEventListener('click', h);
@@ -871,7 +884,75 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     return null;
   };
-  const checkCtx = () => setInTable(!!cellFromSelection());
+  const wrapRef = useRef(null);
+  const [tblBox,setTblBox] = useState(null);   // dove disegnare i comandi della tabella
+
+  const checkCtx = () => {
+    const cell = cellFromSelection();
+    setInTable(!!cell);
+    if(!cell){ setTblBox(null); return; }
+    const tab = cell.closest('table');
+    if(!tab || !wrapRef.current){ setTblBox(null); return; }
+    const t = tab.getBoundingClientRect();
+    const w = wrapRef.current.getBoundingClientRect();
+    const sopra = t.top - w.top - 38;
+    setTblBox({
+      top: sopra > 4 ? sopra : (t.bottom - w.top + 6),
+      left: Math.max(0, t.left - w.left)
+    });
+  };
+
+  /* spostarsi tra le celle come in un foglio di calcolo */
+  const celleDi = (tab) => Array.from(tab.querySelectorAll('tr'));
+  const vaiA = (cell) => {
+    if(!cell) return;
+    const r = document.createRange();
+    r.selectNodeContents(cell); r.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    cell.scrollIntoView({block:'nearest', inline:'nearest'});
+    setTimeout(checkCtx, 0);
+  };
+  const nuovaRigaIn = (tab, modello) => {
+    const tr = document.createElement('tr');
+    for(let i=0;i<modello.children.length;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; tr.appendChild(td); }
+    let corpo = tab.querySelector('tbody');
+    if(!corpo){ corpo = document.createElement('tbody'); tab.appendChild(corpo); }
+    corpo.appendChild(tr);
+    emit();
+    return tr;
+  };
+  const navigaTabella = (e) => {
+    const cell = cellFromSelection();
+    if(!cell) return false;
+    const tab = cell.closest('table');
+    const riga = cell.parentNode;
+    const righe = celleDi(tab);
+    const ri = righe.indexOf(riga);
+    const ci = Array.prototype.indexOf.call(riga.children, cell);
+
+    if(e.key === 'Tab'){
+      e.preventDefault();
+      if(e.shiftKey){
+        const prec = cell.previousElementSibling
+          || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
+        vaiA(prec);
+      } else {
+        let succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
+        if(!succ) succ = nuovaRigaIn(tab, riga).children[0];   // in fondo: nuova riga
+        vaiA(succ);
+      }
+      return true;
+    }
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      let sotto = righe[ri+1] && righe[ri+1].children[ci];
+      if(!sotto) sotto = nuovaRigaIn(tab, riga).children[ci];
+      vaiA(sotto);
+      return true;
+    }
+    return false;
+  };
 
   const insertTable = () => {
     const r = parseInt(prompt('Quante righe? (esclusa l\'intestazione)','3'),10);
@@ -1028,21 +1109,21 @@ function RichText({value, onChange, placeholder, docKey}){
 
       {busy && <div className="peso">{busy}</div>}
 
-      {inTable && (
-        <div className="rt-ctx">
-          <b>Tabella</b>
+      <div className="rt-wrap" ref={wrapRef}>
+      {inTable && tblBox && (
+        <div className="rt-ctx" style={{top:tblBox.top, left:tblBox.left}} onMouseDown={e=>e.preventDefault()}>
           <button onClick={addRow}>+ riga</button>
           <button onClick={delRow}>− riga</button>
-          <button onClick={addCol}>+ colonna</button>
-          <button onClick={delCol}>− colonna</button>
-          <button onClick={delTable}>elimina</button>
+          <button onClick={addCol}>+ col</button>
+          <button onClick={delCol}>− col</button>
+          <button className="del" onClick={delTable}>elimina</button>
         </div>
       )}
 
       <div ref={ref} className="rt" contentEditable suppressContentEditableWarning
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
-        onKeyDown={e=>{ scorciatoiaElenco(e); }}
+        onKeyDown={e=>{ if(navigaTabella(e)) return; scorciatoiaElenco(e); }}
         onKeyUp={()=>{ checkCtx(); salvaRange(); }}
         onMouseUp={()=>{ checkCtx(); salvaRange(); }}
         onTouchEnd={salvaRange}
@@ -1070,6 +1151,8 @@ function RichText({value, onChange, placeholder, docKey}){
           document.execCommand('insertText', false, dt.getData('text/plain'));
         }}
       />
+
+      </div>
 
       {peso>700 && <div className="peso">Questo documento pesa circa {peso} KB. Oltre il migliaio di KB il salvataggio può rallentare: valuta di togliere qualche foto.</div>}
     </div>
