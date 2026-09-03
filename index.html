@@ -924,7 +924,8 @@ function RichText({value, onChange, placeholder, docKey}){
   const [tblBox,setTblBox] = useState(null);   // dove disegnare i comandi della tabella
   const [modo,setModo] = useState('sel');      // 'sel' = sopra le celle · 'edit' = dentro la cella
   const selRef = useRef([]);                   // celle selezionate
-  const attivaRef = useRef(null);              // cella con il bordo marcato
+  const attivaRef = useRef(null);              // ancora: da dove parte la selezione
+  const fuocoRef = useRef(null);               // cella su cui sono ora (bordo marcato)
 
   const tuttiTd = () => ref.current ? Array.from(ref.current.querySelectorAll('td,th')) : [];
 
@@ -938,9 +939,14 @@ function RichText({value, onChange, placeholder, docKey}){
   const disegnaSel = () => {
     tuttiTd().forEach(td=>td.classList.remove('cella-sel','cella-attiva'));
     selRef.current.forEach(td=>{ if(td.isConnected) td.classList.add('cella-sel'); });
-    if(attivaRef.current && attivaRef.current.isConnected) attivaRef.current.classList.add('cella-attiva');
+    const f = fuocoRef.current || attivaRef.current;
+    if(f && f.isConnected) f.classList.add('cella-attiva');
   };
-  const puliscoSel = () => { selRef.current = []; attivaRef.current = null; disegnaSel(); };
+  const puliscoSel = () => { selRef.current = []; attivaRef.current = null; fuocoRef.current = null; disegnaSel(); };
+  const cellaCorrente = () => {
+    const f = fuocoRef.current;
+    return (f && f.isConnected) ? f : (attivaRef.current && attivaRef.current.isConnected ? attivaRef.current : null);
+  };
 
   /* rettangolo di celle tra due estremi, per Maiusc+clic e Maiusc+frecce */
   const rettangolo = (a, b) => {
@@ -971,6 +977,7 @@ function RichText({value, onChange, placeholder, docKey}){
       selRef.current = [td];
     }
     if(!o.estendi) attivaRef.current = td;
+    fuocoRef.current = td;              // il cursore si sposta sempre, l'ancora no
     cellaRef.current = td;
     setModo('sel'); applicaModo('sel');
     disegnaSel();
@@ -999,18 +1006,18 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const entraInModifica = (td) => {
-    const cella = td || attivaRef.current;
+    const cella = td || cellaCorrente();
     if(!cella) return;
     setMulti(false);
     setModo('edit'); applicaModo('edit', cella);
     tuttiTd().forEach(x=>x.classList.remove('cella-sel','cella-attiva'));
-    selRef.current = [cella]; attivaRef.current = cella; cellaRef.current = cella;
+    selRef.current = [cella]; attivaRef.current = cella; fuocoRef.current = cella; cellaRef.current = cella;
     setTimeout(()=>{ cella.focus(); vaiA(cella); }, 0);
   };
   const tornaInSelezione = () => {
     const cella = cellaRef.current;
     setModo('sel'); applicaModo('sel');
-    if(cella && cella.isConnected){ selRef.current = [cella]; attivaRef.current = cella; disegnaSel(); posizionaBox(cella); }
+    if(cella && cella.isConnected){ selRef.current = [cella]; attivaRef.current = cella; fuocoRef.current = cella; disegnaSel(); posizionaBox(cella); }
     ref.current.focus();
   };
 
@@ -1027,8 +1034,8 @@ function RichText({value, onChange, placeholder, docKey}){
 
   const checkCtx = () => {
     if(modo === 'sel'){
-      const a = attivaRef.current;
-      if(a && a.isConnected){ setInTable(true); posizionaBox(a); } 
+      const a = cellaCorrente();
+      if(a){ setInTable(true); posizionaBox(a); }
       return;
     }
     const cell = cellFromSelection();
@@ -1124,8 +1131,8 @@ function RichText({value, onChange, placeholder, docKey}){
 
   /* tasti quando si è "sopra" le celle, senza cursore dentro */
   const tastiSelezione = (e) => {
-    const cell = attivaRef.current;
-    if(!cell || !cell.isConnected) return false;
+    const cell = cellaCorrente();
+    if(!cell) return false;
     const tab = cell.closest('table');
     const riga = cell.parentNode;
     const righe = Array.from(tab.querySelectorAll('tr'));
@@ -1145,10 +1152,27 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     if(e.key === 'Escape'){ e.preventDefault(); puliscoSel(); setInTable(false); setTblBox(null); return true; }
 
-    if(e.key === 'ArrowDown'){ e.preventDefault(); if(!vaiCella(ri+1, ci, e.shiftKey)) { const nr=nuovaRigaIn(tab,riga); selezionaCella(nr.children[ci]||nr.children[0]); } return true; }
-    if(e.key === 'ArrowUp'){   e.preventDefault(); vaiCella(ri-1, ci, e.shiftKey); return true; }
-    if(e.key === 'ArrowRight'){e.preventDefault(); vaiCella(ri, ci+1, e.shiftKey) || vaiCella(ri+1, 0, e.shiftKey); return true; }
-    if(e.key === 'ArrowLeft'){ e.preventDefault(); vaiCella(ri, ci-1, e.shiftKey) || (righe[ri-1] && vaiCella(ri-1, righe[ri-1].children.length-1, e.shiftKey)); return true; }
+    const salto = e.ctrlKey || e.metaKey;   // Ctrl/Cmd: fino al bordo, come nel foglio di calcolo
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      if(salto) return vaiCella(righe.length-1, ci, e.shiftKey) || true;
+      if(!vaiCella(ri+1, ci, e.shiftKey)){ const nr=nuovaRigaIn(tab,riga); selezionaCella(nr.children[ci]||nr.children[0]); }
+      return true;
+    }
+    if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      vaiCella(salto ? 0 : ri-1, ci, e.shiftKey); return true;
+    }
+    if(e.key === 'ArrowRight'){
+      e.preventDefault();
+      if(salto) return vaiCella(ri, riga.children.length-1, e.shiftKey) || true;
+      vaiCella(ri, ci+1, e.shiftKey) || vaiCella(ri+1, 0, e.shiftKey); return true;
+    }
+    if(e.key === 'ArrowLeft'){
+      e.preventDefault();
+      if(salto) return vaiCella(ri, 0, e.shiftKey) || true;
+      vaiCella(ri, ci-1, e.shiftKey) || (righe[ri-1] && vaiCella(ri-1, righe[ri-1].children.length-1, e.shiftKey)); return true;
+    }
 
     if(e.key === 'Tab'){
       e.preventDefault();
@@ -1168,6 +1192,9 @@ function RichText({value, onChange, placeholder, docKey}){
       const piu = (e.key === '+' || e.key === '=');
       if(e.shiftKey){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
       return true;
+    }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
+      e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return true;
     }
     if((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')){
       e.preventDefault();
