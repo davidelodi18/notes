@@ -237,6 +237,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .ink-cell{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #c9ded2;
   background:linear-gradient(135deg,#fcf3b0 50%,#d6e8f5 50%);vertical-align:-2px}
 .rt-ctx .pal{top:100%;left:0;margin-top:6px}
+.rt-ctx button.attivo{background:var(--accent);color:#fff;box-shadow:0 0 0 2px rgba(47,111,78,.25)}
 .rt-ctx button.del{background:#f7e9e8;color:var(--red)}
 .rt-ctx button.del:hover{background:var(--red);color:#fff}
 .peso{font-size:12px;color:var(--amber);padding:6px 0}
@@ -908,11 +909,11 @@ function RichText({value, onChange, placeholder, docKey}){
     if(!tab || !wrapRef.current){ setTblBox(null); return; }
     const t = tab.getBoundingClientRect();
     const w = wrapRef.current.getBoundingClientRect();
-    const sopra = t.top - w.top - 38;
-    setTblBox({
-      top: sopra > 4 ? sopra : (t.bottom - w.top + 6),
-      left: Math.max(0, t.left - w.left)
-    });
+    const inTesta = !!cell.closest('thead') || cell.tagName === 'TH';
+    // sopra la tabella serve spazio libero: sotto la barra strumenti (~90px dal bordo alto)
+    const spazioSopra = t.top > 130;
+    const metti = (!inTesta && spazioSopra) ? (t.top - w.top - 40) : (t.bottom - w.top + 8);
+    setTblBox({ top: metti, left: Math.max(0, t.left - w.left) });
   };
 
   /* spostarsi tra le celle come in un foglio di calcolo */
@@ -935,6 +936,67 @@ function RichText({value, onChange, placeholder, docKey}){
     emit();
     return tr;
   };
+  /* il cursore è all'inizio o alla fine del contenuto della cella? */
+  const aiBordi = (cell) => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return {inizio:false, fine:false};
+    const r = sel.getRangeAt(0);
+    const tutto = document.createRange();
+    tutto.selectNodeContents(cell);
+    const inizio = r.collapsed && r.compareBoundaryPoints(Range.START_TO_START, tutto) <= 0;
+    const fine = r.collapsed && r.compareBoundaryPoints(Range.END_TO_END, tutto) >= 0;
+    return {inizio, fine};
+  };
+
+  /* unisci le celle selezionate (stessa riga) e dividi */
+  const unisciCelle = () => {
+    const celle = celleCoinvolte();
+    if(celle.length < 2){ alert('Seleziona almeno due celle, trascinando sopra di esse.'); return; }
+    const riga = celle[0].parentNode;
+    if(!celle.every(c=>c.parentNode===riga)){ alert('Per ora unisco solo celle della stessa riga.'); return; }
+    const prima = celle[0];
+    prima.colSpan = celle.reduce((n,c)=>n + (c.colSpan||1), 0);
+    const testi = celle.map(c=>c.innerHTML.replace(/^<br>$/,'').trim()).filter(Boolean);
+    prima.innerHTML = testi.length ? testi.join(' ') : '<br>';
+    celle.slice(1).forEach(c=>c.remove());
+    emit(); vaiA(prima);
+  };
+  const dividiCella = () => {
+    const c = cellaAttiva(); if(!c) return;
+    const n = c.colSpan || 1;
+    if(n < 2){ alert('Questa cella non è unita.'); return; }
+    c.colSpan = 1;
+    for(let i=1;i<n;i++){
+      const td = document.createElement(c.tagName === 'TH' ? 'th' : 'td');
+      td.innerHTML = '<br>';
+      c.parentNode.insertBefore(td, c.nextSibling);
+    }
+    emit(); vaiA(c);
+  };
+
+  /* copia formato: prende l'aspetto di una cella e lo applica alle altre */
+  const [fmtPreso,setFmtPreso] = useState(false);
+  const fmtRef = useRef(null);
+  const copiaFormato = () => {
+    const c = cellaAttiva(); if(!c) return;
+    const st = window.getComputedStyle(c);
+    fmtRef.current = {
+      backgroundColor: c.style.backgroundColor || '',
+      width: c.style.width || '',
+      textAlign: c.style.textAlign || '',
+      fontWeight: st.fontWeight,
+      color: c.style.color || ''
+    };
+    setFmtPreso(true);
+  };
+  const incollaFormato = () => {
+    if(!fmtRef.current){ copiaFormato(); return; }
+    celleCoinvolte().forEach(td=>{
+      Object.entries(fmtRef.current).forEach(([k,v])=>{ if(v) td.style[k] = v; else td.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase())); });
+    });
+    emit(); setFmtPreso(false);
+  };
+
   const navigaTabella = (e) => {
     const cell = cellFromSelection();
     if(!cell) return false;
@@ -964,6 +1026,39 @@ function RichText({value, onChange, placeholder, docKey}){
       vaiA(sotto);
       return true;
     }
+
+    /* frecce su e giù: cambio cella, come in un foglio di calcolo */
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      const giu = e.key === 'ArrowDown';
+      const vicina = righe[ri + (giu?1:-1)];
+      if(vicina && vicina.children[ci]){ e.preventDefault(); vaiA(vicina.children[ci]); return true; }
+      if(!vicina && giu){ e.preventDefault(); vaiA(nuovaRigaIn(tab, riga).children[ci]); return true; }
+      return false;   // fuori dalla tabella: lascio fare al browser
+    }
+
+    /* frecce destra e sinistra: nel testo, e cambiano cella quando sono al bordo */
+    if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      const b = aiBordi(cell);
+      if(e.key === 'ArrowRight' && b.fine){
+        const succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
+        if(succ){ e.preventDefault(); vaiA(succ); return true; }
+      }
+      if(e.key === 'ArrowLeft' && b.inizio){
+        const prec = cell.previousElementSibling
+          || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
+        if(prec){ e.preventDefault(); vaiA(prec); return true; }
+      }
+      return false;
+    }
+
+    /* Ctrl/Cmd con + e −: righe; aggiungendo Maiusc: colonne */
+    if((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' )){
+      e.preventDefault();
+      const piu = (e.key === '+' || e.key === '=');
+      if(e.shiftKey){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
+      return true;
+    }
+
     return false;
   };
 
@@ -1212,6 +1307,11 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={()=>setPal(pal==='cella'?null:'cella')} title="Colore della cella">
             <span className="ink-cell"></span>
           </button>
+          <button className={fmtPreso?'attivo':''} onClick={fmtPreso?incollaFormato:copiaFormato}
+            title={fmtPreso? 'Applica il formato copiato' : 'Copia il formato di questa cella'}>🖌</button>
+          <span className="sep"></span>
+          <button onClick={unisciCelle} title="Unisci le celle selezionate">⇥⇤</button>
+          <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
           <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
           <span className="sep"></span>
           <button className="del" onClick={delTable}>elimina</button>
