@@ -783,19 +783,6 @@ function RichText({value, onChange, placeholder, docKey}){
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
   useEffect(()=>{
-    if(modo !== 'sel') return;
-    const h = (e) => {
-      if(!attivaRef.current || !attivaRef.current.isConnected) return;
-      const t = e.target;
-      if(t && t.closest && t.closest('input,textarea,select')) return;   // sto scrivendo altrove
-      if(t && t.closest && t.closest('.modal')) return;
-      if(tastiSelezione(e)) e.stopPropagation();
-    };
-    document.addEventListener('keydown', h, true);
-    return ()=>document.removeEventListener('keydown', h, true);
-  },[modo]);
-
-  useEffect(()=>{
     if(!inTable) return;
     let att = false;
     const h = () => {
@@ -1179,6 +1166,19 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     return false;
   };
+
+  useEffect(()=>{
+    if(modo !== 'sel') return;
+    const h = (e) => {
+      if(!attivaRef.current || !attivaRef.current.isConnected) return;
+      const t = e.target;
+      if(t && t.closest && t.closest('input,textarea,select')) return;   // sto scrivendo altrove
+      if(t && t.closest && t.closest('.modal')) return;
+      if(tastiSelezione(e)) e.stopPropagation();
+    };
+    document.addEventListener('keydown', h, true);
+    return ()=>document.removeEventListener('keydown', h, true);
+  },[modo]);
 
   const navigaTabella = (e) => {
     const cell = cellFromSelection();
