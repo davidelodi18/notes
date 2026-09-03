@@ -195,6 +195,12 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .pal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
 .pal-sw{width:26px;height:26px;border-radius:5px;border:1px solid transparent;padding:0}
 .pal-sw:hover{outline:2px solid var(--ink);outline-offset:1px}
+.pal-tit{font-size:11px;color:var(--muted);margin:2px 0 5px;letter-spacing:.02em}
+.pal-custom{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid var(--line);
+  background:var(--paper);border-radius:var(--radius);padding:7px 9px;font-size:12.5px;color:var(--ink-soft);margin-bottom:2px}
+.pal-custom:hover{border-color:var(--accent);color:var(--accent)}
+.ruota{width:15px;height:15px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.12);
+  background:conic-gradient(#e05a4f,#e8a13a,#ddd23f,#5bb35f,#4aa8c4,#5a6fc0,#9a5ec0,#d24f8e,#e05a4f)}
 .pal-clear{display:block;width:100%;text-align:left;border:0;background:none;color:var(--muted);
   font-size:12.5px;padding:5px 4px;border-top:1px solid var(--line-soft);margin-top:2px}
 .pal-clear:hover{color:var(--ink)}
@@ -320,7 +326,12 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   .chk{width:20px;height:20px;margin-top:9px}
   .add-line{padding:11px 0}
 
-  .rt-tools{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:10px}
+  .rt-tools{overflow-x:auto;overflow-y:visible;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:10px}
+  .pal{position:fixed;left:10px;right:10px;bottom:14px;top:auto;margin:0;min-width:0;z-index:80;
+    padding:14px;box-shadow:0 -6px 30px rgba(23,33,29,.28)}
+  .pal-grid{grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}
+  .pal-sw{width:100%;height:44px;border-radius:7px}
+  .pal-clear,.pal-riga{padding:12px 6px;font-size:14px}
   .rt-tools::-webkit-scrollbar{display:none}
   .rt-tools button{flex:none;padding:7px 10px}
   .rt{font-size:16.5px;min-height:180px}
@@ -700,7 +711,7 @@ const INTERLINEE = [
 ];
 
 /* piccola tendina con i campioni di colore */
-function Palette({colori, onPick, onClear, etichetta, evid}){
+function Palette({colori, onPick, onClear, etichetta, evid, recenti, onCustom}){
   return (
     <div className="pal" onMouseDown={e=>e.preventDefault()}>
       <div className="pal-grid">
@@ -709,6 +720,22 @@ function Palette({colori, onPick, onClear, etichetta, evid}){
             onClick={()=>onPick(c.v)}/>
         ))}
       </div>
+
+      {recenti && recenti.length>0 && (
+        <>
+          <div className="pal-tit">Usati di recente</div>
+          <div className="pal-grid">
+            {recenti.map(v=>(
+              <button key={v} className="pal-sw" title={v} style={{background:v, borderColor:'#d5dcd7'}}
+                onClick={()=>onPick(v)}/>
+            ))}
+          </div>
+        </>
+      )}
+
+      <button className="pal-custom" onClick={onCustom}>
+        <span className="ruota"></span> Scegli un colore…
+      </button>
       <button className="pal-clear" onClick={onClear}>{etichetta}</button>
     </div>
   );
@@ -720,6 +747,16 @@ function RichText({value, onChange, placeholder, docKey}){
   const [inTable,setInTable] = useState(false);
   const [busy,setBusy] = useState('');
   const [pal,setPal] = useState(null);   // 'testo' | 'evid' | 'riga' | null
+  const colorRef = useRef(null);
+  const targetRef = useRef('testo');
+  const [recenti,setRecenti] = useState(()=> local.get('quaderno:colori') || []);
+  const ricorda = (v) => {
+    setRecenti(p=>{
+      const n = [v, ...p.filter(x=>x!==v)].slice(0,8);
+      local.set('quaderno:colori', n);
+      return n;
+    });
+  };
 
   useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
   useEffect(()=>{
@@ -732,16 +769,43 @@ function RichText({value, onChange, placeholder, docKey}){
   const emit = () => onChange(ref.current.innerHTML);
   const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
 
+  /* il tocco su un pulsante fa perdere la selezione: la salvo e la rimetto */
+  const rangeRef = useRef(null);
+  const salvaRange = () => {
+    const sel = window.getSelection();
+    if(sel && sel.rangeCount && ref.current && ref.current.contains(sel.anchorNode)){
+      rangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+  const ripristinaRange = () => {
+    const r = rangeRef.current;
+    if(!r) return;
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+  };
+
   /* colore del testo ed evidenziatore: servono gli stili CSS, non i vecchi tag <font> */
   const cmdCss = (c,v)=>{
-    ref.current.focus();
+    ref.current.focus(); ripristinaRange();
     try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
     document.execCommand(c, false, v);
     try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
     emit(); setPal(null);
   };
+  const apriSelettore = (target) => {
+    targetRef.current = target;
+    salvaRange();
+    const attuale = target==='evid' ? '#fcf3b0' : '#17211d';
+    colorRef.current.value = attuale;
+    colorRef.current.click();
+  };
+  const coloreScelto = (v) => {
+    ricorda(v);
+    if(targetRef.current==='evid') evidenzia(v); else cmdCss('foreColor', v);
+  };
+
   const evidenzia = (v) => {
-    ref.current.focus();
+    ref.current.focus(); ripristinaRange();
     try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
     if(!document.execCommand('hiliteColor', false, v)) document.execCommand('backColor', false, v);
     try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
@@ -769,6 +833,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const setInterlinea = (v) => {
+    ref.current.focus(); ripristinaRange();
     const bl = blocchiSelezionati();
     if(!bl.length){ setPal(null); return; }
     bl.forEach(el=>{ if(v) el.style.lineHeight = v; else el.style.removeProperty('line-height'); });
@@ -913,30 +978,32 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
 
-        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='testo'?null:'testo')} title="Colore del testo">
+        <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='testo'?null:'testo')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Colore del testo">
             <span className="ink-a">A</span>
           </button>
           {pal==='testo' && (
-            <Palette colori={COLORI_TESTO} etichetta="Torna al nero"
-              onPick={v=>cmdCss('foreColor', v)}
+            <Palette colori={COLORI_TESTO} etichetta="Torna al nero" recenti={recenti}
+              onCustom={()=>apriSelettore('testo')}
+              onPick={v=>{ ricorda(v); cmdCss('foreColor', v); }}
               onClear={()=>cmdCss('foreColor', '#17211d')}/>
           )}
         </span>
 
-        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='evid'?null:'evid')} title="Evidenziatore">
+        <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='evid'?null:'evid')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Evidenziatore">
             <span className="ink-h">A</span>
           </button>
           {pal==='evid' && (
-            <Palette colori={COLORI_EVID} evid etichetta="Togli evidenziatore"
-              onPick={v=>evidenzia(v)}
+            <Palette colori={COLORI_EVID} evid etichetta="Togli evidenziatore" recenti={recenti}
+              onCustom={()=>apriSelettore('evid')}
+              onPick={v=>{ ricorda(v); evidenzia(v); }}
               onClear={()=>evidenzia('transparent')}/>
           )}
         </span>
 
-        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='riga'?null:'riga')} title="Spaziatura tra le righe">↕</button>
+        <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Spaziatura tra le righe">↕</button>
           {pal==='riga' && (
             <div className="pal" onMouseDown={e=>e.preventDefault()}>
               {INTERLINEE.map(x=>(
@@ -956,6 +1023,8 @@ function RichText({value, onChange, placeholder, docKey}){
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={onFile}/>
+      <input ref={colorRef} type="color" style={{position:'absolute',width:0,height:0,opacity:0,pointerEvents:'none'}}
+        onChange={e=>coloreScelto(e.target.value)}/>
 
       {busy && <div className="peso">{busy}</div>}
 
@@ -974,8 +1043,10 @@ function RichText({value, onChange, placeholder, docKey}){
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
         onKeyDown={e=>{ scorciatoiaElenco(e); }}
-        onKeyUp={checkCtx}
-        onMouseUp={checkCtx}
+        onKeyUp={()=>{ checkCtx(); salvaRange(); }}
+        onMouseUp={()=>{ checkCtx(); salvaRange(); }}
+        onTouchEnd={salvaRange}
+        onBlur={salvaRange}
         onFocus={checkCtx}
         onPaste={e=>{
           const dt = e.clipboardData||window.clipboardData;
