@@ -23,6 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
+window.APP_VER = "3 set · selezione celle";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -93,6 +94,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .nav-add:hover{border-color:var(--accent);color:var(--accent)}
 .sidebar-foot{padding:10px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sidebar-foot button{border:0;background:none;color:var(--muted);text-decoration:underline;padding:0}
+.sidebar-foot .ver{font-size:10.5px;color:#a9b5ae;white-space:nowrap}
 
 /* ── lista documenti ────────────────────────────────── */
 .list-head{padding:14px 14px 10px;border-bottom:1px solid var(--line-soft)}
@@ -2588,6 +2590,7 @@ function App(){
         </div>
         <div className="sidebar-foot">
           <button onClick={()=>setModalFmt(true)}>Formato export</button>
+          <span className="ver" title="Versione del file caricato">{window.APP_VER||'—'}</span>
           {HAS_FB && <button onClick={()=>fbAuth.signOut()}>Esci</button>}
         </div>
       </div>
