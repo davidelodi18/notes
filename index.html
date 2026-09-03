@@ -189,6 +189,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover{background:var(--line-soft);color:var(--ink)}
 .pal-wrap{position:relative;display:inline-flex}
+.rt-tools button.attivo-fmt{background:var(--accent);color:#fff}
+.rt-tools button.attivo-fmt:hover{background:#255840;color:#fff}
 .ink-a{border-bottom:3px solid #a33c34;padding-bottom:1px;font-weight:600}
 .ink-h{background:#fcf3b0;padding:0 3px;border-radius:2px;font-weight:600}
 .pal{position:absolute;top:100%;left:0;margin-top:5px;background:var(--paper);border:1px solid var(--line);
@@ -222,6 +224,11 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt table td,.rt table th{border:1px solid var(--line);padding:6px 9px;vertical-align:top;min-width:40px}
 .rt table th{background:var(--shell);text-align:left;font-weight:600}
 .rt table td:focus,.rt table th:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.rt.modo-sel table td,.rt.modo-sel table th{cursor:cell;-webkit-user-select:none;user-select:none}
+.rt table td.cella-sel,.rt table th.cella-sel{background-image:linear-gradient(rgba(47,111,78,.13),rgba(47,111,78,.13))}
+.rt table td.cella-attiva,.rt table th.cella-attiva{outline:2px solid var(--accent);outline-offset:-2px}
+.rt-ctx button.scrivi{background:var(--accent);color:#fff;font-weight:500}
+.rt-ctx button.scrivi:hover{background:#255840}
 .rt figure{margin:16px 0;text-align:center}
 .rt img{max-width:100%;height:auto;border-radius:4px;display:block;margin:0 auto}
 .rt figcaption{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:5px}
@@ -770,7 +777,11 @@ function RichText({value, onChange, placeholder, docKey}){
     });
   };
 
-  useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
+  useEffect(()=>{
+    if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
+    puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
+  }, [docKey]);
+  useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
   useEffect(()=>{
     if(!inTable) return;
     let att = false;
@@ -790,7 +801,15 @@ function RichText({value, onChange, placeholder, docKey}){
     return () => document.removeEventListener('click', h);
   },[pal]);
 
-  const emit = () => onChange(ref.current.innerHTML);
+  const emit = () => {
+    const html = ref.current.innerHTML
+      .replace(/ contenteditable="(?:true|false)"/g, '')
+      .replace(/ class="cella-sel cella-attiva"/g, '')
+      .replace(/ class="cella-sel"/g, '')
+      .replace(/ class="cella-attiva"/g, '')
+      .replace(/(class="[^"]*?)\s*cella-(?:sel|attiva)/g, '$1');
+    onChange(html);
+  };
   const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
 
   /* il tocco su un pulsante fa perdere la selezione: la salvo e la rimetto */
@@ -899,21 +918,99 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const wrapRef = useRef(null);
   const [tblBox,setTblBox] = useState(null);   // dove disegnare i comandi della tabella
+  const [modo,setModo] = useState('sel');      // 'sel' = sopra le celle · 'edit' = dentro la cella
+  const selRef = useRef([]);                   // celle selezionate
+  const attivaRef = useRef(null);              // cella con il bordo marcato
 
-  const checkCtx = () => {
-    const cell = cellFromSelection();
-    if(cell) cellaRef.current = cell;
-    setInTable(!!cell);
-    if(!cell){ setTblBox(null); return; }
-    const tab = cell.closest('table');
+  const tuttiTd = () => ref.current ? Array.from(ref.current.querySelectorAll('td,th')) : [];
+
+  /* in modalità selezione le celle non accettano il cursore */
+  const applicaModo = (m, esclusa) => {
+    tuttiTd().forEach(td=>{
+      if(m === 'sel' || td !== esclusa) td.setAttribute('contenteditable','false');
+      else td.removeAttribute('contenteditable');
+    });
+  };
+  const disegnaSel = () => {
+    tuttiTd().forEach(td=>td.classList.remove('cella-sel','cella-attiva'));
+    selRef.current.forEach(td=>{ if(td.isConnected) td.classList.add('cella-sel'); });
+    if(attivaRef.current && attivaRef.current.isConnected) attivaRef.current.classList.add('cella-attiva');
+  };
+  const puliscoSel = () => { selRef.current = []; attivaRef.current = null; disegnaSel(); };
+
+  /* rettangolo di celle tra due estremi, per Maiusc+clic e Maiusc+frecce */
+  const rettangolo = (a, b) => {
+    const tab = a.closest('table');
+    if(!tab || b.closest('table') !== tab) return [b];
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const ra = righe.indexOf(a.parentNode), rb = righe.indexOf(b.parentNode);
+    const ca = Array.prototype.indexOf.call(a.parentNode.children, a);
+    const cb = Array.prototype.indexOf.call(b.parentNode.children, b);
+    const out = [];
+    for(let r=Math.min(ra,rb); r<=Math.max(ra,rb); r++){
+      for(let c=Math.min(ca,cb); c<=Math.max(ca,cb); c++){
+        const td = righe[r] && righe[r].children[c];
+        if(td) out.push(td);
+      }
+    }
+    return out;
+  };
+
+  const selezionaCella = (td, opt) => {
+    const o = opt || {};
+    if(o.aggiungi){
+      const i = selRef.current.indexOf(td);
+      if(i >= 0) selRef.current.splice(i,1); else selRef.current.push(td);
+    } else if(o.estendi && attivaRef.current){
+      selRef.current = rettangolo(attivaRef.current, td);
+    } else {
+      selRef.current = [td];
+    }
+    if(!o.estendi) attivaRef.current = td;
+    cellaRef.current = td;
+    setModo('sel'); applicaModo('sel');
+    disegnaSel();
+    setInTable(true);
+    posizionaBox(td);
+  };
+
+  const entraInModifica = (td) => {
+    const cella = td || attivaRef.current;
+    if(!cella) return;
+    setModo('edit'); applicaModo('edit', cella);
+    tuttiTd().forEach(x=>x.classList.remove('cella-sel','cella-attiva'));
+    selRef.current = [cella]; attivaRef.current = cella; cellaRef.current = cella;
+    setTimeout(()=>{ cella.focus(); vaiA(cella); }, 0);
+  };
+  const tornaInSelezione = () => {
+    const cella = cellaRef.current;
+    setModo('sel'); applicaModo('sel');
+    if(cella && cella.isConnected){ selRef.current = [cella]; attivaRef.current = cella; disegnaSel(); posizionaBox(cella); }
+    ref.current.focus();
+  };
+
+  const posizionaBox = (cell) => {
+    const tab = cell && cell.closest('table');
     if(!tab || !wrapRef.current){ setTblBox(null); return; }
     const t = tab.getBoundingClientRect();
     const w = wrapRef.current.getBoundingClientRect();
     const inTesta = !!cell.closest('thead') || cell.tagName === 'TH';
-    // sopra la tabella serve spazio libero: sotto la barra strumenti (~90px dal bordo alto)
-    const spazioSopra = t.top > 130;
+    const spazioSopra = t.top > 130;   // sopra deve restarci spazio, sotto la barra strumenti
     const metti = (!inTesta && spazioSopra) ? (t.top - w.top - 40) : (t.bottom - w.top + 8);
     setTblBox({ top: metti, left: Math.max(0, t.left - w.left) });
+  };
+
+  const checkCtx = () => {
+    if(modo === 'sel'){
+      const a = attivaRef.current;
+      if(a && a.isConnected){ setInTable(true); posizionaBox(a); } 
+      return;
+    }
+    const cell = cellFromSelection();
+    if(cell) cellaRef.current = cell;
+    setInTable(!!cell);
+    if(!cell){ setTblBox(null); return; }
+    posizionaBox(cell);
   };
 
   /* spostarsi tra le celle come in un foglio di calcolo */
@@ -997,9 +1094,74 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(); setFmtPreso(false);
   };
 
+  /* tasti quando si è "sopra" le celle, senza cursore dentro */
+  const tastiSelezione = (e) => {
+    const cell = attivaRef.current;
+    if(!cell || !cell.isConnected) return false;
+    const tab = cell.closest('table');
+    const riga = cell.parentNode;
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const ri = righe.indexOf(riga);
+    const ci = Array.prototype.indexOf.call(riga.children, cell);
+
+    const vaiCella = (r, c, estendi) => {
+      const td = righe[r] && righe[r].children[c];
+      if(!td) return false;
+      selezionaCella(td, {estendi});
+      td.scrollIntoView({block:'nearest', inline:'nearest'});
+      return true;
+    };
+
+    if(e.key === 'F2' || (e.key === 'Enter' && !e.shiftKey)){
+      e.preventDefault(); entraInModifica(cell); return true;
+    }
+    if(e.key === 'Escape'){ e.preventDefault(); puliscoSel(); setInTable(false); setTblBox(null); return true; }
+
+    if(e.key === 'ArrowDown'){ e.preventDefault(); if(!vaiCella(ri+1, ci, e.shiftKey)) { const nr=nuovaRigaIn(tab,riga); selezionaCella(nr.children[ci]||nr.children[0]); } return true; }
+    if(e.key === 'ArrowUp'){   e.preventDefault(); vaiCella(ri-1, ci, e.shiftKey); return true; }
+    if(e.key === 'ArrowRight'){e.preventDefault(); vaiCella(ri, ci+1, e.shiftKey) || vaiCella(ri+1, 0, e.shiftKey); return true; }
+    if(e.key === 'ArrowLeft'){ e.preventDefault(); vaiCella(ri, ci-1, e.shiftKey) || (righe[ri-1] && vaiCella(ri-1, righe[ri-1].children.length-1, e.shiftKey)); return true; }
+
+    if(e.key === 'Tab'){
+      e.preventDefault();
+      if(e.shiftKey) vaiCella(ri, ci-1) || (righe[ri-1] && vaiCella(ri-1, righe[ri-1].children.length-1));
+      else if(!vaiCella(ri, ci+1) && !vaiCella(ri+1, 0)){ const nr=nuovaRigaIn(tab,riga); selezionaCella(nr.children[0]); }
+      return true;
+    }
+
+    if(e.key === 'Delete' || e.key === 'Backspace'){
+      e.preventDefault();
+      celleCoinvolte().forEach(td=>{ td.innerHTML = '<br>'; });
+      emit(); return true;
+    }
+
+    if((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=')){
+      e.preventDefault();
+      const piu = (e.key === '+' || e.key === '=');
+      if(e.shiftKey){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
+      return true;
+    }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')){
+      e.preventDefault();
+      selRef.current = Array.from(tab.querySelectorAll('td,th'));
+      disegnaSel(); return true;
+    }
+
+    /* come in Excel: iniziare a scrivere sostituisce il contenuto */
+    if(e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+      e.preventDefault();
+      cell.innerHTML = '';
+      entraInModifica(cell);
+      setTimeout(()=>{ document.execCommand('insertText', false, e.key); emit(); }, 10);
+      return true;
+    }
+    return false;
+  };
+
   const navigaTabella = (e) => {
     const cell = cellFromSelection();
     if(!cell) return false;
+    if(e.key === 'Escape' || e.key === 'F2'){ e.preventDefault(); tornaInSelezione(); return true; }
     const tab = cell.closest('table');
     const riga = cell.parentNode;
     const righe = celleDi(tab);
@@ -1136,6 +1298,43 @@ function RichText({value, onChange, placeholder, docKey}){
     }
   };
 
+  /* copia formato del testo: grassetto, corsivo, colore, evidenziatore */
+  const fmtTesto = useRef(null);
+  const [fmtTPreso,setFmtTPreso] = useState(false);
+  const copiaFormatoTesto = () => {
+    salvaRange();
+    const sel = window.getSelection();
+    let n = sel && sel.anchorNode;
+    if(n && n.nodeType === 3) n = n.parentElement;
+    if(!n || !ref.current.contains(n)){ alert('Metti prima il cursore nel testo di cui copiare il formato.'); return; }
+    const st = window.getComputedStyle(n);
+    const sfondo = st.backgroundColor;
+    fmtTesto.current = {
+      bold: parseInt(st.fontWeight,10) >= 600,
+      italic: st.fontStyle === 'italic',
+      underline: (st.textDecorationLine||'').includes('underline'),
+      color: st.color,
+      bg: (!sfondo || sfondo === 'rgba(0, 0, 0, 0)' || sfondo === 'transparent') ? null : sfondo
+    };
+    setFmtTPreso(true);
+  };
+  const incollaFormatoTesto = () => {
+    const f = fmtTesto.current;
+    if(!f){ copiaFormatoTesto(); return; }
+    ref.current.focus(); ripristinaRange();
+    const sel = window.getSelection();
+    if(!sel || sel.isCollapsed){ alert('Seleziona il testo a cui applicare il formato.'); return; }
+    try{ document.execCommand('styleWithCSS', false, true); }catch(err){}
+    ['bold','italic','underline'].forEach(c=>{
+      try{ if(document.queryCommandState(c) !== f[c]) document.execCommand(c); }catch(err){}
+    });
+    if(f.color) document.execCommand('foreColor', false, f.color);
+    if(!document.execCommand('hiliteColor', false, f.bg || 'transparent'))
+      document.execCommand('backColor', false, f.bg || 'transparent');
+    try{ document.execCommand('styleWithCSS', false, false); }catch(err){}
+    emit(); setFmtTPreso(false);
+  };
+
   /* annulla e ripeti */
   const annulla = () => { ref.current.focus(); ripristinaRange(); document.execCommand('undo'); emit(); };
   const ripeti  = () => { ref.current.focus(); ripristinaRange(); document.execCommand('redo'); emit(); };
@@ -1143,6 +1342,8 @@ function RichText({value, onChange, placeholder, docKey}){
   /* colore di sfondo della cella (o delle celle selezionate) */
   const cellaRef = useRef(null);
   const celleCoinvolte = () => {
+    const vive = selRef.current.filter(td=>td.isConnected);
+    if(vive.length) return vive;
     const c = cellaAttiva();
     if(!c) return [];
     const sel = window.getSelection();
@@ -1265,6 +1466,11 @@ function RichText({value, onChange, placeholder, docKey}){
           )}
         </span>
 
+        <button className={fmtTPreso?'attivo-fmt':''}
+          onMouseDown={e=>{e.preventDefault(); salvaRange();}}
+          onClick={fmtTPreso ? incollaFormatoTesto : copiaFormatoTesto}
+          title={fmtTPreso ? 'Applica il formato al testo selezionato' : 'Copia il formato di questo testo'}>🖌</button>
+
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Spaziatura tra le righe">↕</button>
           {pal==='riga' && (
@@ -1314,6 +1520,10 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
           <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
           <span className="sep"></span>
+          {modo === 'sel'
+            ? <button className="scrivi" onClick={()=>entraInModifica()} title="Scrivi nella cella (F2)">✎ scrivi</button>
+            : <button className="scrivi" onClick={tornaInSelezione} title="Esci dalla cella (Esc)">✓ fatto</button>}
+          <span className="sep"></span>
           <button className="del" onClick={delTable}>elimina</button>
 
           {pal==='cella' && (
@@ -1325,10 +1535,28 @@ function RichText({value, onChange, placeholder, docKey}){
         </div>
       )}
 
-      <div ref={ref} className="rt" contentEditable suppressContentEditableWarning
+      <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')} contentEditable suppressContentEditableWarning
+        onMouseDown={e=>{
+          const td = e.target.closest && e.target.closest('td,th');
+          if(!td || !ref.current.contains(td)){ 
+            if(modo==='sel'){ puliscoSel(); setInTable(false); setTblBox(null); }
+            return;
+          }
+          if(modo === 'edit' && td === cellaRef.current) return;   // sto già scrivendo qui
+          e.preventDefault();
+          selezionaCella(td, {aggiungi: e.ctrlKey || e.metaKey, estendi: e.shiftKey});
+        }}
+        onDoubleClick={e=>{
+          const td = e.target.closest && e.target.closest('td,th');
+          if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
+        }}
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
-        onKeyDown={e=>{ if(navigaTabella(e)) return; scorciatoiaElenco(e); }}
+        onKeyDown={e=>{
+          if(modo === 'sel' && attivaRef.current && tastiSelezione(e)) return;
+          if(navigaTabella(e)) return;
+          scorciatoiaElenco(e);
+        }}
         onKeyUp={()=>{ checkCtx(); salvaRange(); }}
         onMouseUp={()=>{ checkCtx(); salvaRange(); }}
         onTouchEnd={salvaRange}
