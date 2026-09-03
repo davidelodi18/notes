@@ -187,6 +187,20 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools{display:flex;gap:2px;padding:4px 0 8px;border-bottom:1px solid var(--line-soft);margin-bottom:10px;flex-wrap:wrap}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover{background:var(--line-soft);color:var(--ink)}
+.pal-wrap{position:relative;display:inline-flex}
+.ink-a{border-bottom:3px solid #a33c34;padding-bottom:1px;font-weight:600}
+.ink-h{background:#fcf3b0;padding:0 3px;border-radius:2px;font-weight:600}
+.pal{position:absolute;top:100%;left:0;margin-top:5px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:0 8px 24px rgba(23,33,29,.18);padding:9px;z-index:30;min-width:150px}
+.pal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.pal-sw{width:26px;height:26px;border-radius:5px;border:1px solid transparent;padding:0}
+.pal-sw:hover{outline:2px solid var(--ink);outline-offset:1px}
+.pal-clear{display:block;width:100%;text-align:left;border:0;background:none;color:var(--muted);
+  font-size:12.5px;padding:5px 4px;border-top:1px solid var(--line-soft);margin-top:2px}
+.pal-clear:hover{color:var(--ink)}
+.pal-riga{display:block;width:100%;text-align:left;border:0;background:none;padding:7px 8px;
+  border-radius:4px;font-size:13px;white-space:nowrap}
+.pal-riga:hover{background:var(--line-soft)}
 .rt{
   min-height:220px;outline:none;font-family:var(--serif);font-size:17px;line-height:1.65;color:var(--ink);
 }
@@ -228,6 +242,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .top-doc .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .top-doc .p{font-variant-numeric:tabular-nums;color:var(--ink-soft);font-size:13px;white-space:nowrap}
 .top-doc .img{font-size:11.5px;color:var(--amber);white-space:nowrap}
+.anteprima{border:1px solid var(--line);border-radius:var(--radius);padding:16px;background:#fff;
+  margin-top:16px;color:#17211d;max-height:210px;overflow:auto}
 .nota-box{background:var(--accent-soft);border-radius:var(--radius);padding:12px 14px;font-size:12.5px;
   color:#255840;margin-top:20px;line-height:1.55}
 
@@ -458,65 +474,79 @@ function docToHtml(doc, sezione){
   return h;
 }
 
-const PRINT_CSS = `
-body{font-family:Georgia,'Times New Roman',serif;font-size:11.5pt;line-height:1.5;color:#17211d;margin:0}
-.kicker{font-family:Arial,sans-serif;font-size:9pt;color:#7b8a83;margin:0 0 4pt;letter-spacing:.04em}
-h1{font-size:22pt;margin:0 0 10pt;line-height:1.2}
-h2{font-size:14pt;margin:18pt 0 6pt;border-bottom:1px solid #d5dcd7;padding-bottom:3pt}
-h3{font-size:12.5pt;margin:12pt 0 4pt}
-table.meta{border-collapse:collapse;margin:10pt 0 14pt;width:100%}
-table.meta td{padding:3pt 8pt 3pt 0;vertical-align:top;font-size:10.5pt}
-table.meta td.k{color:#7b8a83;width:110pt;font-family:Arial,sans-serif;font-size:9.5pt}
-table.grid{border-collapse:collapse;width:100%;margin:8pt 0;font-size:10.5pt}
-table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:Arial,sans-serif;font-size:9.5pt}
+const FONTS = {
+  serif: { corpo:"Georgia,'Times New Roman',serif", etich:"Arial,Helvetica,sans-serif", nome:'Georgia (grazie)' },
+  sans:  { corpo:"Arial,Helvetica,sans-serif",      etich:"Arial,Helvetica,sans-serif", nome:'Arial (bastone)' }
+};
+const MARGINI = { stretti:[12,12], normali:[18,16], ampi:[24,22] };
+const FORMATO_DEF = { font:'serif', size:11, margini:'normali' };
+
+function printCss(o){
+  const f = FONTS[o.font] || FONTS.serif;
+  const b = o.size;
+  const r = n => (b*n).toFixed(1);
+  return `
+body{font-family:${f.corpo};font-size:${b}pt;line-height:1.45;color:#17211d;margin:0}
+.kicker{font-family:${f.etich};font-size:${r(0.78)}pt;color:#7b8a83;margin:0 0 4pt;letter-spacing:.04em}
+h1{font-family:${f.corpo};font-size:${r(1.85)}pt;margin:0 0 9pt;line-height:1.2}
+h2{font-family:${f.corpo};font-size:${r(1.22)}pt;margin:16pt 0 5pt;border-bottom:1px solid #d5dcd7;padding-bottom:3pt}
+h3{font-family:${f.corpo};font-size:${r(1.08)}pt;margin:11pt 0 4pt}
+table.meta{border-collapse:collapse;margin:9pt 0 13pt;width:100%}
+table.meta td{padding:3pt 8pt 3pt 0;vertical-align:top;font-size:${r(0.92)}pt;border:0}
+table.meta td.k{color:#7b8a83;width:110pt;font-family:${f.etich};font-size:${r(0.83)}pt}
+table.grid{border-collapse:collapse;width:100%;margin:7pt 0;font-size:${r(0.92)}pt}
+table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:${f.etich};font-size:${r(0.83)}pt}
 table.grid td{padding:5pt 7pt;border:1px solid #d5dcd7;vertical-align:top}
 table.grid td.macro-cell{background:#f2f5f2}
 table{border-collapse:collapse;max-width:100%}
-td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:Arial,sans-serif;font-size:10pt}
+td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:${f.etich};font-size:${r(0.88)}pt}
 th{background:#e9ede9;text-align:left;font-weight:bold}
 img{max-width:100%;height:auto}
-figure{margin:10pt 0;text-align:center;page-break-inside:avoid}
-figcaption{font-family:Arial,sans-serif;font-size:9pt;color:#7b8a83;margin-top:3pt}
-ol,ul{padding-left:18pt}
-li{margin:4pt 0}
-.note{font-size:10.5pt;color:#41504a;margin:3pt 0 6pt}
-blockquote{border-left:2px solid #2f6f4e;margin:8pt 0;padding-left:10pt;color:#41504a;font-style:italic}
+figure{margin:9pt 0;text-align:center;page-break-inside:avoid}
+figcaption{font-family:${f.etich};font-size:${r(0.78)}pt;color:#7b8a83;margin-top:3pt}
+ol,ul{padding-left:16pt;margin:5pt 0}
+li{margin:3pt 0}
+.note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
+blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
 .doc-sep{page-break-after:always}
 `;
+}
 
-const PDF_PAGE_CSS = `
-@page{ size:A4; margin:0 }
-body{ padding:18mm 16mm 20mm }
-@media print{ body{ padding:18mm 16mm 20mm } }
-`;
-
-function fullHtml(title, inner){
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${PRINT_CSS}${PDF_PAGE_CSS}</style></head><body>${inner}</body></html>`;
+function fullHtml(title, inner, fmt){
+  const o = fmt || FORMATO_DEF;
+  const m = MARGINI[o.margini] || MARGINI.normali;
+  const pageCss = `@page{ size:A4; margin:0 } body{ padding:${m[0]}mm ${m[1]}mm ${m[0]+2}mm }`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${printCss(o)}${pageCss}</style></head><body>${inner}</body></html>`;
 }
 
 /* stili applicati al contenitore che html2pdf crea per la conversione */
-const PDF_DOM_CSS = `
-.pdfdoc{width:100%;background:#fff;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.5;color:#17211d}
-.pdfdoc .kicker{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin:0 0 5px;letter-spacing:.04em}
-.pdfdoc h1{font-size:30px;margin:0 0 12px;line-height:1.2;color:#17211d}
-.pdfdoc h2{font-size:20px;margin:24px 0 8px;border-bottom:1px solid #d5dcd7;padding-bottom:4px;color:#17211d}
-.pdfdoc h3{font-size:17px;margin:16px 0 5px;color:#17211d}
-.pdfdoc table.meta{border-collapse:collapse;margin:12px 0 18px;width:100%}
-.pdfdoc table.meta td{padding:4px 10px 4px 0;vertical-align:top;font-size:14px;border:0}
-.pdfdoc table.meta td.k{color:#7b8a83;width:150px;font-family:Arial,sans-serif;font-size:12.5px}
-.pdfdoc table{border-collapse:collapse;width:100%;margin:10px 0;font-family:Arial,sans-serif;font-size:13.5px}
-.pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:7px 9px;vertical-align:top}
+function pdfDomCss(o){
+  const f = FONTS[o.font] || FONTS.serif;
+  const b = o.size * 1.34;          // da punti a pixel, così PDF e Word coincidono
+  const r = n => (b*n).toFixed(1);
+  return `
+.pdfdoc{width:100%;background:#fff;font-family:${f.corpo};font-size:${b.toFixed(1)}px;line-height:1.45;color:#17211d}
+.pdfdoc .kicker{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin:0 0 5px;letter-spacing:.04em}
+.pdfdoc h1{font-family:${f.corpo};font-size:${r(1.85)}px;margin:0 0 10px;line-height:1.2;color:#17211d}
+.pdfdoc h2{font-family:${f.corpo};font-size:${r(1.22)}px;margin:20px 0 7px;border-bottom:1px solid #d5dcd7;padding-bottom:4px;color:#17211d}
+.pdfdoc h3{font-family:${f.corpo};font-size:${r(1.08)}px;margin:14px 0 5px;color:#17211d}
+.pdfdoc table.meta{border-collapse:collapse;margin:10px 0 15px;width:100%}
+.pdfdoc table.meta td{padding:4px 10px 4px 0;vertical-align:top;font-size:${r(0.92)}px;border:0}
+.pdfdoc table.meta td.k{color:#7b8a83;width:145px;font-family:${f.etich};font-size:${r(0.83)}px}
+.pdfdoc table{border-collapse:collapse;width:100%;margin:9px 0;font-family:${f.etich};font-size:${r(0.9)}px}
+.pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:6px 9px;vertical-align:top}
 .pdfdoc th{background:#e9ede9;text-align:left;font-weight:bold}
 .pdfdoc td.macro-cell{background:#f2f5f2}
-.pdfdoc ol,.pdfdoc ul{padding-left:24px;margin:8px 0}
-.pdfdoc li{margin:6px 0}
-.pdfdoc .note{font-size:14px;color:#41504a;margin:4px 0 8px}
-.pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:10px 0;padding-left:14px;color:#41504a;font-style:italic}
+.pdfdoc ol,.pdfdoc ul{padding-left:22px;margin:7px 0}
+.pdfdoc li{margin:5px 0}
+.pdfdoc .note{font-size:${r(0.92)}px;color:#41504a;margin:3px 0 7px}
+.pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:9px 0;padding-left:13px;color:#41504a;font-style:italic}
 .pdfdoc img{max-width:100%;height:auto}
-.pdfdoc figure{margin:14px 0;text-align:center}
-.pdfdoc figcaption{font-family:Arial,sans-serif;font-size:12px;color:#7b8a83;margin-top:4px}
+.pdfdoc figure{margin:12px 0;text-align:center}
+.pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
+}
 
 function loadScript(src){
   return new Promise((res,rej)=>{
@@ -528,12 +558,12 @@ function loadScript(src){
 }
 
 /* stampa dal browser: usata solo come ripiego */
-function printFallback(title, inner){
+function printFallback(title, inner, fmt){
   const f = document.createElement('iframe');
   f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
   document.body.appendChild(f);
   const d = f.contentWindow.document;
-  d.open(); d.write(fullHtml(title, inner)); d.close();
+  d.open(); d.write(fullHtml(title, inner, fmt)); d.close();
   setTimeout(()=>{ f.contentWindow.focus(); f.contentWindow.print(); setTimeout(()=>f.remove(), 1200); }, 350);
 }
 
@@ -555,21 +585,21 @@ function canvasVuoto(c){
   }catch(e){ return false; }   // nel dubbio, procedo
 }
 
-async function exportPdf(title, inner, filename){
+async function exportPdf(title, inner, filename, fmt){
+  const o = fmt || FORMATO_DEF;
   const nome = ((filename||title||'documento').replace(/[^\w\sàèéìòùÀÈÉÌÒÙ\-]/gi,'').trim() || 'documento') + '.pdf';
   try{
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
     if(!window.html2pdf) throw new Error('libreria non disponibile');
 
-    if(!document.getElementById('pdf-style')){
-      const st = document.createElement('style');
-      st.id = 'pdf-style'; st.textContent = PDF_DOM_CSS;
-      document.head.appendChild(st);
-    }
+    let st = document.getElementById('pdf-style');
+    if(!st){ st = document.createElement('style'); st.id = 'pdf-style'; document.head.appendChild(st); }
+    st.textContent = pdfDomCss(o);
 
     const wrapped = `<div class="pdfdoc">${inner}</div>`;
+    const mm = MARGINI[o.margini] || MARGINI.normali;
     const opt = {
-      margin: [16, 15, 18, 15],
+      margin: [mm[0], mm[1], mm[0]+2, mm[1]],
       filename: nome,
       image: { type:'jpeg', quality:0.96 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor:'#ffffff', logging:false, scrollX:0, scrollY:0 },
@@ -589,16 +619,18 @@ async function exportPdf(title, inner, filename){
   }catch(e){
     console.error('PDF diretto non riuscito:', e);
     alert('Non sono riuscito a generare il PDF direttamente. Apro la stampa: da lì scegli "Salva come PDF".');
-    printFallback(title, inner);
+    printFallback(title, inner, o);
     return false;
   }
 }
 
-function exportWord(filename, title, inner){
+function exportWord(filename, title, inner, fmt){
+  const o = fmt || FORMATO_DEF;
+  const m = MARGINI[o.margini] || MARGINI.normali;
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8"><title>${title}</title>
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
-<style>@page{size:A4;margin:2.2cm}${PRINT_CSS}</style></head><body>${inner}</body></html>`;
+<style>@page{size:A4;margin:${m[0]}mm ${m[1]}mm}${printCss(o)}</style></head><body>${inner}</body></html>`;
   const blob = new Blob(['\ufeff', html], {type:'application/msword'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -651,16 +683,118 @@ const fmtPeso = b => {
 const LIMITE_DB = 1073741824;   // 1 GB, piano gratuito Spark
 
 /* ═══════════ editor rich text ═══════════ */
+const COLORI_TESTO = [
+  {n:'Nero',    v:'#17211d'}, {n:'Grigio',  v:'#6b7a72'},
+  {n:'Rosso',   v:'#a33c34'}, {n:'Arancio', v:'#a86a1f'},
+  {n:'Verde',   v:'#2f6f4e'}, {n:'Blu',     v:'#2b5d80'},
+  {n:'Viola',   v:'#6b4a7a'}, {n:'Bordeaux',v:'#7a3b52'}
+];
+const COLORI_EVID = [
+  {n:'Giallo', v:'#fcf3b0'}, {n:'Verde',  v:'#d6f0dd'},
+  {n:'Azzurro',v:'#d6e8f5'}, {n:'Rosa',   v:'#fadde3'},
+  {n:'Arancio',v:'#fbe3c7'}, {n:'Grigio', v:'#e6eae7'}
+];
+const INTERLINEE = [
+  {n:'Compatta', v:'1.25'}, {n:'Normale', v:'1.5'},
+  {n:'Ampia',    v:'1.8'},  {n:'Doppia',  v:'2.2'}
+];
+
+/* piccola tendina con i campioni di colore */
+function Palette({colori, onPick, onClear, etichetta, evid}){
+  return (
+    <div className="pal" onMouseDown={e=>e.preventDefault()}>
+      <div className="pal-grid">
+        {colori.map(c=>(
+          <button key={c.v} className="pal-sw" title={c.n} style={{background:c.v, borderColor: evid? '#d5dcd7' : c.v}}
+            onClick={()=>onPick(c.v)}/>
+        ))}
+      </div>
+      <button className="pal-clear" onClick={onClear}>{etichetta}</button>
+    </div>
+  );
+}
+
 function RichText({value, onChange, placeholder, docKey}){
   const ref = useRef(null);
   const fileRef = useRef(null);
   const [inTable,setInTable] = useState(false);
   const [busy,setBusy] = useState('');
+  const [pal,setPal] = useState(null);   // 'testo' | 'evid' | 'riga' | null
 
   useEffect(()=>{ if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||''; }, [docKey]);
+  useEffect(()=>{
+    if(!pal) return;
+    const h = () => setPal(null);
+    document.addEventListener('click', h);
+    return () => document.removeEventListener('click', h);
+  },[pal]);
 
   const emit = () => onChange(ref.current.innerHTML);
   const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
+
+  /* colore del testo ed evidenziatore: servono gli stili CSS, non i vecchi tag <font> */
+  const cmdCss = (c,v)=>{
+    ref.current.focus();
+    try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
+    document.execCommand(c, false, v);
+    try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
+    emit(); setPal(null);
+  };
+  const evidenzia = (v) => {
+    ref.current.focus();
+    try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
+    if(!document.execCommand('hiliteColor', false, v)) document.execCommand('backColor', false, v);
+    try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
+    emit(); setPal(null);
+  };
+
+  /* blocchi (paragrafi, voci di elenco, titoli) toccati dalla selezione */
+  const blocchiSelezionati = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || !ref.current.contains(sel.anchorNode)) return [];
+    const su = (n) => {
+      while(n && n!==ref.current){
+        if(n.nodeType===1 && /^(P|DIV|LI|H2|H3|BLOCKQUOTE|TD|TH)$/.test(n.tagName)) return n;
+        n = n.parentNode;
+      }
+      return null;
+    };
+    const a = su(sel.anchorNode), b = su(sel.focusNode);
+    if(!a && !b) return [ref.current];
+    if(a===b || !b) return [a].filter(Boolean);
+    const tutti = Array.from(ref.current.querySelectorAll('p,div,li,h2,h3,blockquote'));
+    const i = tutti.indexOf(a), j = tutti.indexOf(b);
+    if(i<0 || j<0) return [a,b].filter(Boolean);
+    return tutti.slice(Math.min(i,j), Math.max(i,j)+1);
+  };
+
+  const setInterlinea = (v) => {
+    const bl = blocchiSelezionati();
+    if(!bl.length){ setPal(null); return; }
+    bl.forEach(el=>{ if(v) el.style.lineHeight = v; else el.style.removeProperty('line-height'); });
+    emit(); setPal(null); ref.current.focus();
+  };
+
+  /* "- " oppure "1. " a inizio riga diventano un elenco */
+  const scorciatoiaElenco = (e) => {
+    if(e.key !== ' ') return false;
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return false;
+    const n = sel.anchorNode;
+    if(!n || n.nodeType !== 3) return false;
+    if(n.parentElement && n.parentElement.closest('li')) return false;   // già in un elenco
+    const prima = n.textContent.slice(0, sel.anchorOffset);
+    const puntato = /^\s*[-*•]$/.test(prima);
+    const numerato = /^\s*(1[.)]|1)$/.test(prima);
+    if(!puntato && !numerato) return false;
+    e.preventDefault();
+    n.textContent = n.textContent.slice(sel.anchorOffset);   // via il segno digitato
+    const r = document.createRange(); r.setStart(n, 0); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+    document.execCommand(puntato ? 'insertUnorderedList' : 'insertOrderedList');
+    emit();
+    return true;
+  };
 
   const cellFromSelection = () => {
     const s = window.getSelection();
@@ -778,6 +912,42 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
+
+        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='testo'?null:'testo')} title="Colore del testo">
+            <span className="ink-a">A</span>
+          </button>
+          {pal==='testo' && (
+            <Palette colori={COLORI_TESTO} etichetta="Torna al nero"
+              onPick={v=>cmdCss('foreColor', v)}
+              onClear={()=>cmdCss('foreColor', '#17211d')}/>
+          )}
+        </span>
+
+        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='evid'?null:'evid')} title="Evidenziatore">
+            <span className="ink-h">A</span>
+          </button>
+          {pal==='evid' && (
+            <Palette colori={COLORI_EVID} evid etichetta="Togli evidenziatore"
+              onPick={v=>evidenzia(v)}
+              onClear={()=>evidenzia('transparent')}/>
+          )}
+        </span>
+
+        <span className="pal-wrap" onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setPal(pal==='riga'?null:'riga')} title="Spaziatura tra le righe">↕</button>
+          {pal==='riga' && (
+            <div className="pal" onMouseDown={e=>e.preventDefault()}>
+              {INTERLINEE.map(x=>(
+                <button key={x.v} className="pal-riga" onClick={()=>setInterlinea(x.v)}>{x.n}</button>
+              ))}
+              <button className="pal-clear" onClick={()=>setInterlinea(null)}>Predefinita</button>
+            </div>
+          )}
+        </span>
+
+        <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={insertTable} title="Inserisci tabella">▦</button>
         <button onClick={pickImage} title="Inserisci foto">🖼</button>
         <button onClick={addLink} title="Collegamento (anche a un video)">🔗</button>
@@ -803,6 +973,7 @@ function RichText({value, onChange, placeholder, docKey}){
       <div ref={ref} className="rt" contentEditable suppressContentEditableWarning
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
+        onKeyDown={e=>{ scorciatoiaElenco(e); }}
         onKeyUp={checkCtx}
         onMouseUp={checkCtx}
         onFocus={checkCtx}
@@ -1018,6 +1189,67 @@ function NewDocModal({onCreate, onClose}){
   );
 }
 
+/* ═══════════ formato degli export ═══════════ */
+function FormatoModal({fmt, onSave, onClose}){
+  const [f,setF] = useState(fmt.font);
+  const [sz,setSz] = useState(fmt.size);
+  const [mg,setMg] = useState(fmt.margini);
+  const ff = FONTS[f].corpo;
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
+      <div className="modal" style={{maxWidth:460}}>
+        <h3>Formato di Word e PDF</h3>
+
+        <div className="f">
+          <label>Carattere</label>
+          <select value={f} onChange={e=>setF(e.target.value)}>
+            {Object.entries(FONTS).map(([k,v])=><option key={k} value={k}>{v.nome}</option>)}
+          </select>
+        </div>
+
+        <div className="f">
+          <label>Dimensione del testo — {String(sz).replace('.',',')} pt</label>
+          <input type="range" min="8" max="14" step="0.5" value={sz}
+            onChange={e=>setSz(parseFloat(e.target.value))} style={{padding:0}}/>
+          <div className="spazio-sub" style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+            <span>piccolo</span><span>grande</span>
+          </div>
+        </div>
+
+        <div className="f">
+          <label>Margini della pagina</label>
+          <select value={mg} onChange={e=>setMg(e.target.value)}>
+            <option value="stretti">Stretti — più testo per pagina</option>
+            <option value="normali">Normali</option>
+            <option value="ampi">Ampi</option>
+          </select>
+        </div>
+
+        <div className="anteprima" style={{fontFamily:ff}}>
+          <div style={{fontSize:(sz*1.85)+'pt',lineHeight:1.2,marginBottom:6}}>Riunione di esempio</div>
+          <div style={{fontSize:(sz*1.22)+'pt',borderBottom:'1px solid #d5dcd7',paddingBottom:3,margin:'10px 0 5px'}}>Ordine del giorno</div>
+          <div style={{fontSize:sz+'pt',lineHeight:1.45}}>
+            Così apparirà il testo dei tuoi documenti una volta esportati, con questa
+            dimensione e questo carattere.
+          </div>
+          <div style={{fontSize:(sz*0.92)+'pt',color:'#41504a',marginTop:5}}>
+            E così le note, leggermente più piccole.
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn" style={{marginRight:'auto'}}
+            onClick={()=>{ setF(FORMATO_DEF.font); setSz(FORMATO_DEF.size); setMg(FORMATO_DEF.margini); }}>
+            Ripristina
+          </button>
+          <button className="btn" onClick={onClose}>Annulla</button>
+          <button className="btn primary" onClick={()=>onSave({font:f,size:sz,margini:mg})}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════ login ═══════════ */
 function Login(){
   const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
@@ -1064,6 +1296,26 @@ function App(){
   const [menuOpen,setMenuOpen] = useState(false);
   const [pdfBusy,setPdfBusy] = useState(false);
   const [focusId,setFocusId] = useState(null);
+  const [fmt,setFmt] = useState(FORMATO_DEF);
+  const [modalFmt,setModalFmt] = useState(false);
+
+  useEffect(()=>{
+    if(HAS_FB){
+      if(!user) return;
+      const r = fbDb.ref(ROOT+'/formato');
+      const cb = r.on('value', sn=>{ if(sn.val()) setFmt({...FORMATO_DEF, ...sn.val()}); });
+      return ()=>r.off('value',cb);
+    } else {
+      const v = local.get(ROOT+':formato');
+      if(v) setFmt({...FORMATO_DEF, ...v});
+    }
+  },[user]);
+
+  const salvaFmt = (nuovo) => {
+    setFmt(nuovo); setModalFmt(false);
+    if(HAS_FB) fbDb.ref(ROOT+'/formato').set(nuovo);
+    else local.set(ROOT+':formato', nuovo);
+  };
   useEffect(()=>{ setMenuOpen(false); },[selDoc,selSez]);
   useEffect(()=>{
     if(!menuOpen) return;
@@ -1222,14 +1474,14 @@ function App(){
     saveDoc(d.id,d); setSelDoc(d.id);
   };
 
-  const esportaSezione = async (fmt) => {
+  const esportaSezione = async (formato) => {
     const lista = docList;
     if(!lista.length){ alert('Non c\'è niente da esportare.'); return; }
     const titolo = q.trim()? `Ricerca "${q}"` : (sezCorrente? sezCorrente.nome : 'Quaderno');
     const inner = `<h1>${titolo}</h1>` + lista.map(d=>'<div class="doc-sep">'+docToHtml(d, sezioni[d.sezioneId])+'</div>').join('');
-    if(fmt==='word'){ exportWord(titolo, titolo, inner); return; }
+    if(formato==='word'){ exportWord(titolo, titolo, inner, fmt); return; }
     setPdfBusy(true);
-    await exportPdf(titolo, inner, titolo);
+    await exportPdf(titolo, inner, titolo, fmt);
     setPdfBusy(false);
   };
 
@@ -1353,10 +1605,10 @@ function App(){
           )}
           <span className="spacer"></span>
           <span className="saved">{salvato}</span>
-          <button className="btn sm" onClick={()=>exportWord(fname, doc.titolo||'Documento', inner())}>Word</button>
+          <button className="btn sm" onClick={()=>exportWord(fname, doc.titolo||'Documento', inner(), fmt)}>Word</button>
           <button className="btn sm" disabled={pdfBusy} onClick={async()=>{
             setPdfBusy(true);
-            await exportPdf(doc.titolo||'Documento', inner(), fname);
+            await exportPdf(doc.titolo||'Documento', inner(), fname, fmt);
             setPdfBusy(false);
           }}>{pdfBusy ? 'PDF…' : 'PDF'}</button>
           <button className="btn ghost sm hide-mobile" onClick={duplicaDoc} title="Duplica come nuovo">Duplica</button>
@@ -1365,6 +1617,7 @@ function App(){
             <button className="btn ghost sm" onClick={e=>{e.stopPropagation(); setMenuOpen(o=>!o);}} title="Altro">⋯</button>
             {menuOpen && (
               <div className="doc-menu-pop">
+                <button onClick={()=>{setMenuOpen(false); setModalFmt(true);}}>Formato export…</button>
                 <button onClick={()=>{setMenuOpen(false); duplicaDoc();}}>Duplica</button>
                 <button className="danger" onClick={()=>{setMenuOpen(false); eliminaDoc();}}>Elimina</button>
               </div>
@@ -1599,7 +1852,7 @@ function App(){
           </div>
         </div>
         <div className="sidebar-foot">
-          <span>{HAS_FB? 'Sincronizzato' : 'Memoria locale'}</span>
+          <button onClick={()=>setModalFmt(true)}>Formato export</button>
           {HAS_FB && <button onClick={()=>fbAuth.signOut()}>Esci</button>}
         </div>
       </div>
@@ -1665,6 +1918,7 @@ function App(){
           }}/>
       )}
       {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
+      {modalFmt && <FormatoModal fmt={fmt} onSave={salvaFmt} onClose={()=>setModalFmt(false)}/>}
     </div>
   );
 }
