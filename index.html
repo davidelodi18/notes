@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "3 set · selezione celle";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "3 set · pennello e colori";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -191,7 +191,10 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover:not(:disabled){background:var(--line-soft);color:var(--ink)}
 .rt-tools button:disabled{opacity:.3;cursor:default}
-.pal-wrap{position:relative;display:inline-flex}
+.pal-wrap{position:relative;display:inline-flex;gap:0}
+.rt-tools .split-main{padding-right:5px}
+.rt-tools .split-caret{padding:4px 4px 4px 1px;font-size:9px;color:var(--muted);min-width:0}
+.ink-a{border-bottom-width:3px;border-bottom-style:solid}
 .rt-tools button.attivo-fmt{background:var(--accent);color:#fff}
 .rt-tools button.attivo-fmt:hover{background:#255840;color:#fff}
 .ink-a{border-bottom:3px solid #a33c34;padding-bottom:1px;font-weight:600}
@@ -217,6 +220,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   min-height:220px;outline:none;font-family:var(--serif);font-size:17px;line-height:1.65;color:var(--ink);
 }
 .rt:empty:before{content:attr(data-ph);color:#c3ccc7}
+.rt.col-pennello, .rt.col-pennello *{cursor:copy!important}
+.avviso-pennello{background:var(--accent-soft);color:#255840;border-radius:var(--radius);
+  padding:7px 11px;font-size:12.5px;margin-bottom:8px}
 .rt h2{font-size:21px;margin:20px 0 6px}
 .rt h3{font-size:18px;margin:16px 0 4px}
 .rt ul,.rt ol{padding-left:22px;margin:8px 0}
@@ -772,6 +778,10 @@ function RichText({value, onChange, placeholder, docKey}){
   const colorRef = useRef(null);
   const targetRef = useRef('testo');
   const [recenti,setRecenti] = useState(()=> local.get('quaderno:colori') || []);
+  const [ultimoTesto,setUltimoTesto] = useState(()=> local.get('quaderno:ultimoTesto') || '#a33c34');
+  const [ultimoEvid,setUltimoEvid] = useState(()=> local.get('quaderno:ultimoEvid') || '#fcf3b0');
+  const ricordaTesto = (v) => { setUltimoTesto(v); local.set('quaderno:ultimoTesto', v); };
+  const ricordaEvid  = (v) => { setUltimoEvid(v);  local.set('quaderno:ultimoEvid', v); };
   const ricorda = (v) => {
     setRecenti(p=>{
       const n = [v, ...p.filter(x=>x!==v)].slice(0,8);
@@ -851,8 +861,8 @@ function RichText({value, onChange, placeholder, docKey}){
   const coloreScelto = (v) => {
     ricorda(v);
     if(targetRef.current==='cella') coloraCelle(v);
-    else if(targetRef.current==='evid') evidenzia(v);
-    else cmdCss('foreColor', v);
+    else if(targetRef.current==='evid'){ ricordaEvid(v); evidenzia(v); }
+    else { ricordaTesto(v); cmdCss('foreColor', v); }
   };
 
   const evidenzia = (v) => {
@@ -995,6 +1005,12 @@ function RichText({value, onChange, placeholder, docKey}){
 
   const [multi,setMulti] = useState(false);   // ogni tocco aggiunge alla selezione
   const trascina = useRef(false);
+  useEffect(()=>{
+    const stop = () => { trascina.current = false; };
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchend', stop);
+    return ()=>{ document.removeEventListener('mouseup', stop); document.removeEventListener('touchend', stop); };
+  },[]);
 
   const cellaDaPunto = (x, y) => {
     const el = document.elementFromPoint(x, y);
@@ -1112,23 +1128,29 @@ function RichText({value, onChange, placeholder, docKey}){
   const [fmtPreso,setFmtPreso] = useState(false);
   const fmtRef = useRef(null);
   const copiaFormato = () => {
-    const c = cellaAttiva(); if(!c) return;
-    const st = window.getComputedStyle(c);
+    const c = cellaCorrente() || cellaAttiva();
+    if(!c){ alert('Scegli prima la cella di cui copiare il formato.'); return; }
     fmtRef.current = {
       backgroundColor: c.style.backgroundColor || '',
       width: c.style.width || '',
       textAlign: c.style.textAlign || '',
-      fontWeight: st.fontWeight,
+      fontWeight: c.style.fontWeight || '',
+      fontStyle: c.style.fontStyle || '',
       color: c.style.color || ''
     };
     setFmtPreso(true);
   };
   const incollaFormato = () => {
     if(!fmtRef.current){ copiaFormato(); return; }
-    celleCoinvolte().forEach(td=>{
-      Object.entries(fmtRef.current).forEach(([k,v])=>{ if(v) td.style[k] = v; else td.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase())); });
+    const dest = celleCoinvolte();
+    if(!dest.length){ alert('Scegli le celle a cui applicare il formato.'); return; }
+    dest.forEach(td=>{
+      Object.entries(fmtRef.current).forEach(([k,v])=>{
+        if(v) td.style[k] = v;
+        else td.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase()));
+      });
     });
-    emit(); setFmtPreso(false);
+    emit(true); setFmtPreso(false);
   };
 
   /* tasti quando si è "sopra" le celle, senza cursore dentro */
@@ -1388,12 +1410,15 @@ function RichText({value, onChange, placeholder, docKey}){
     };
     setFmtTPreso(true);
   };
-  const incollaFormatoTesto = () => {
+  const incollaFormatoTesto = (daSelezione) => {
     const f = fmtTesto.current;
     if(!f){ copiaFormatoTesto(); return; }
-    ref.current.focus(); ripristinaRange();
+    if(!daSelezione){ ref.current.focus(); ripristinaRange(); }
     const sel = window.getSelection();
-    if(!sel || sel.isCollapsed){ alert('Seleziona il testo a cui applicare il formato.'); return; }
+    if(!sel || sel.isCollapsed){
+      if(daSelezione) return;                       // niente selezione: aspetto ancora
+      alert('Seleziona il testo a cui applicare il formato.'); return;
+    }
     try{ document.execCommand('styleWithCSS', false, true); }catch(err){}
     ['bold','italic','underline'].forEach(c=>{
       try{ if(document.queryCommandState(c) !== f[c]) document.execCommand(c); }catch(err){}
@@ -1553,33 +1578,41 @@ function RichText({value, onChange, placeholder, docKey}){
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='testo'?null:'testo')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Colore del testo">
-            <span className="ink-a">A</span>
+          <button className="split-main" onMouseDown={e=>{e.preventDefault(); salvaRange();}}
+            title={'Applica di nuovo questo colore'}
+            onClick={()=>{ ricorda(ultimoTesto); cmdCss('foreColor', ultimoTesto); }}>
+            <span className="ink-a" style={{borderBottomColor:ultimoTesto}}>A</span>
           </button>
+          <button className="split-caret" onMouseDown={e=>{e.preventDefault(); salvaRange();}}
+            title="Scegli un altro colore" onClick={()=>setPal(pal==='testo'?null:'testo')}>▾</button>
           {pal==='testo' && (
             <Palette colori={COLORI_TESTO} etichetta="Torna al nero" recenti={recenti}
               onCustom={()=>apriSelettore('testo')}
-              onPick={v=>{ ricorda(v); cmdCss('foreColor', v); }}
+              onPick={v=>{ ricorda(v); ricordaTesto(v); cmdCss('foreColor', v); }}
               onClear={()=>cmdCss('foreColor', '#17211d')}/>
           )}
         </span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='evid'?null:'evid')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Evidenziatore">
-            <span className="ink-h">A</span>
+          <button className="split-main" onMouseDown={e=>{e.preventDefault(); salvaRange();}}
+            title={'Evidenzia di nuovo con questo colore'}
+            onClick={()=>{ ricorda(ultimoEvid); evidenzia(ultimoEvid); }}>
+            <span className="ink-h" style={{background:ultimoEvid}}>A</span>
           </button>
+          <button className="split-caret" onMouseDown={e=>{e.preventDefault(); salvaRange();}}
+            title="Scegli un altro colore" onClick={()=>setPal(pal==='evid'?null:'evid')}>▾</button>
           {pal==='evid' && (
             <Palette colori={COLORI_EVID} evid etichetta="Togli evidenziatore" recenti={recenti}
               onCustom={()=>apriSelettore('evid')}
-              onPick={v=>{ ricorda(v); evidenzia(v); }}
+              onPick={v=>{ ricorda(v); ricordaEvid(v); evidenzia(v); }}
               onClear={()=>evidenzia('transparent')}/>
           )}
         </span>
 
         <button className={fmtTPreso?'attivo-fmt':''}
           onMouseDown={e=>{e.preventDefault(); salvaRange();}}
-          onClick={fmtTPreso ? incollaFormatoTesto : copiaFormatoTesto}
-          title={fmtTPreso ? 'Applica il formato al testo selezionato' : 'Copia il formato di questo testo'}>🖌</button>
+          onClick={()=>{ if(fmtTPreso) setFmtTPreso(false); else copiaFormatoTesto(); }}
+          title={fmtTPreso ? 'Pennello attivo: seleziona il testo da formattare (Esc per annullare)' : 'Copia il formato di questo testo'}>🖌</button>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Spaziatura tra le righe">↕</button>
@@ -1606,6 +1639,7 @@ function RichText({value, onChange, placeholder, docKey}){
         onChange={e=>coloreScelto(e.target.value)}/>
 
       {busy && <div className="peso">{busy}</div>}
+      {fmtTPreso && <div className="avviso-pennello">🖌 Pennello attivo — seleziona il testo da formattare (Esc per annullare)</div>}
 
       <div className="rt-wrap" ref={wrapRef}>
       {inTable && tblBox && (
@@ -1650,7 +1684,7 @@ function RichText({value, onChange, placeholder, docKey}){
         </div>
       )}
 
-      <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')} contentEditable suppressContentEditableWarning
+      <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning
         onMouseDown={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(!td || !ref.current.contains(td)){ 
@@ -1665,12 +1699,16 @@ function RichText({value, onChange, placeholder, docKey}){
           trascina.current = !multi && !conModificatore;
         }}
         onMouseMove={e=>{
+          if(e.buttons === 0){ trascina.current = false; return; }   // nessun tasto premuto: sto solo passando sopra
           if(!trascina.current || modo !== 'sel') return;
           if(e.ctrlKey || e.metaKey) return;
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td)) estendiFinoA(td);
         }}
-        onMouseUp={()=>{ trascina.current = false; }}
+        onMouseUp={()=>{
+          trascina.current = false;
+          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
+        }}
         onMouseLeave={()=>{ trascina.current = false; }}
         onTouchStart={e=>{
           if(modo !== 'sel') return;
