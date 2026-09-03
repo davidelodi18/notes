@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "3 set · formato celle";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "4 set · celle e contatore";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -191,6 +191,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover:not(:disabled){background:var(--line-soft);color:var(--ink)}
 .rt-tools button:disabled{opacity:.3;cursor:default}
+.conta-celle{align-self:center;background:var(--accent-soft);color:#255840;border-radius:20px;
+  padding:2px 9px;font-size:11.5px;margin-right:4px;white-space:nowrap}
 .pal-wrap{position:relative;display:inline-flex;gap:0}
 .rt-tools .split-main{padding-right:5px}
 .rt-tools .split-caret{padding:4px 4px 4px 1px;font-size:9px;color:var(--muted);min-width:0}
@@ -835,7 +837,15 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   /* applica stili alle celle selezionate, senza entrarci dentro (come nel foglio di calcolo) */
-  const celleScelte = () => (modo === 'sel' ? selRef.current.filter(td=>td.isConnected) : []);
+  const celleScelte = () => {
+    const vive = selRef.current.filter(td=>td.isConnected);
+    if(modo === 'sel') return vive;
+    // sto scrivendo dentro una cella: se non ho selezionato del testo, il comando vale per tutta la cella
+    const sel = window.getSelection();
+    const cella = cellFromSelection();
+    if(cella && (!sel || sel.isCollapsed)) return [cella];
+    return [];
+  };
   const applicaStileCelle = (stile, alterna) => {
     const celle = celleScelte();
     if(!celle.length) return false;
@@ -1635,7 +1645,10 @@ function RichText({value, onChange, placeholder, docKey}){
 
   return (
     <div>
-      <div className="rt-tools">
+      <div className="rt-tools" onMouseDown={e=>{ if(e.target.closest('button')) e.preventDefault(); }}>
+        {inTable && modo==='sel' && selRef.current.filter(td=>td.isConnected).length > 0 && (
+          <span className="conta-celle">{selRef.current.filter(td=>td.isConnected).length} celle</span>
+        )}
         <button disabled={!puoAnnullare} onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={annulla} title="Annulla (Ctrl/Cmd+Z)">↶</button>
         <button disabled={!puoRipetere} onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={ripeti} title="Ripeti (Ctrl/Cmd+Maiusc+Z)">↷</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
