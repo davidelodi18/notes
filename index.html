@@ -187,7 +187,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools{display:flex;gap:2px;padding:6px 0 8px;border-bottom:1px solid var(--line-soft);margin-bottom:10px;
   flex-wrap:wrap;position:sticky;top:46px;z-index:8;background:rgba(255,255,255,.96);backdrop-filter:blur(6px)}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
-.rt-tools button:hover{background:var(--line-soft);color:var(--ink)}
+.rt-tools button:hover:not(:disabled){background:var(--line-soft);color:var(--ink)}
+.rt-tools button:disabled{opacity:.3;cursor:default}
 .pal-wrap{position:relative;display:inline-flex}
 .rt-tools button.attivo-fmt{background:var(--accent);color:#fff}
 .rt-tools button.attivo-fmt:hover{background:#255840;color:#fff}
@@ -780,6 +781,8 @@ function RichText({value, onChange, placeholder, docKey}){
   useEffect(()=>{
     if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
+    storia.current = {stack:[value||''], i:0, bloccato:false, timer:null};
+    setPuoAnnullare(false); setPuoRipetere(false);
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
   useEffect(()=>{
@@ -801,13 +804,14 @@ function RichText({value, onChange, placeholder, docKey}){
     return () => document.removeEventListener('click', h);
   },[pal]);
 
-  const emit = () => {
+  const emit = (subito) => {
     const html = ref.current.innerHTML
       .replace(/ contenteditable="(?:true|false)"/g, '')
       .replace(/ class="cella-sel cella-attiva"/g, '')
       .replace(/ class="cella-sel"/g, '')
       .replace(/ class="cella-attiva"/g, '')
       .replace(/(class="[^"]*?)\s*cella-(?:sel|attiva)/g, '$1');
+    registra(html, subito === true);
     onChange(html);
   };
   const cmd = (c,v)=>{ ref.current.focus(); document.execCommand(c,false,v||null); emit(); };
@@ -980,9 +984,24 @@ function RichText({value, onChange, placeholder, docKey}){
     }catch(err){}
   };
 
+  const [multi,setMulti] = useState(false);   // ogni tocco aggiunge alla selezione
+  const trascina = useRef(false);
+
+  const cellaDaPunto = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const td = el && el.closest && el.closest('td,th');
+    return (td && ref.current && ref.current.contains(td)) ? td : null;
+  };
+  const estendiFinoA = (td) => {
+    if(!td || !attivaRef.current) return;
+    selRef.current = rettangolo(attivaRef.current, td);
+    disegnaSel();
+  };
+
   const entraInModifica = (td) => {
     const cella = td || attivaRef.current;
     if(!cella) return;
+    setMulti(false);
     setModo('edit'); applicaModo('edit', cella);
     tuttiTd().forEach(x=>x.classList.remove('cella-sel','cella-attiva'));
     selRef.current = [cella]; attivaRef.current = cella; cellaRef.current = cella;
@@ -1357,9 +1376,49 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(); setFmtTPreso(false);
   };
 
-  /* annulla e ripeti */
-  const annulla = () => { ref.current.focus(); ripristinaRange(); document.execCommand('undo'); emit(); };
-  const ripeti  = () => { ref.current.focus(); ripristinaRange(); document.execCommand('redo'); emit(); };
+  /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
+  const storia = useRef({stack:[], i:-1, bloccato:false, timer:null});
+  const [puoAnnullare,setPuoAnnullare] = useState(false);
+  const [puoRipetere,setPuoRipetere] = useState(false);
+  const aggiornaFrecce = () => {
+    const st = storia.current;
+    setPuoAnnullare(st.i > 0);
+    setPuoRipetere(st.i < st.stack.length - 1);
+  };
+  const registra = (html, subito) => {
+    const st = storia.current;
+    if(st.bloccato) return;
+    clearTimeout(st.timer);
+    const salva = () => {
+      if(st.stack[st.i] === html) return;
+      st.stack = st.stack.slice(0, st.i + 1);
+      st.stack.push(html);
+      const max = html.length > 200000 ? 12 : 60;   // documenti con foto: meno passi indietro
+      while(st.stack.length > max) st.stack.shift();
+      st.i = st.stack.length - 1;
+      aggiornaFrecce();
+    };
+    if(subito) salva(); else st.timer = setTimeout(salva, 450);
+  };
+  const applicaStato = (html) => {
+    const st = storia.current;
+    st.bloccato = true;
+    ref.current.innerHTML = html;
+    onChange(html);
+    puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
+    setTimeout(()=>{ st.bloccato = false; aggiornaFrecce(); }, 60);
+  };
+  const annulla = () => {
+    const st = storia.current;
+    clearTimeout(st.timer);
+    if(st.i <= 0) return;
+    st.i--; applicaStato(st.stack[st.i]);
+  };
+  const ripeti = () => {
+    const st = storia.current;
+    if(st.i >= st.stack.length - 1) return;
+    st.i++; applicaStato(st.stack[st.i]);
+  };
 
   /* colore di sfondo della cella (o delle celle selezionate) */
   const cellaRef = useRef(null);
@@ -1450,8 +1509,8 @@ function RichText({value, onChange, placeholder, docKey}){
   return (
     <div>
       <div className="rt-tools">
-        <button onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={annulla} title="Annulla (Ctrl/Cmd+Z)">↶</button>
-        <button onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={ripeti} title="Ripeti (Ctrl/Cmd+Maiusc+Z)">↷</button>
+        <button disabled={!puoAnnullare} onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={annulla} title="Annulla (Ctrl/Cmd+Z)">↶</button>
+        <button disabled={!puoRipetere} onMouseDown={e=>{e.preventDefault(); salvaRange();}} onClick={ripeti} title="Ripeti (Ctrl/Cmd+Maiusc+Z)">↷</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={()=>cmd('bold')} title="Grassetto"><b>B</b></button>
         <button onClick={()=>cmd('italic')} title="Corsivo"><i>I</i></button>
@@ -1542,6 +1601,11 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
           <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
           <span className="sep"></span>
+          <button className={multi?'attivo':''} onClick={()=>setMulti(m=>!m)}
+            title={multi? 'Sto scegliendo più celle: tocca per aggiungerle' : 'Scegli più celle una a una'}>
+            {multi ? '✓ più celle' : '⊞ più celle'}
+          </button>
+          <span className="sep"></span>
           {modo === 'sel'
             ? <button className="scrivi" onClick={()=>entraInModifica()} title="Scrivi nella cella (F2)">✎ scrivi</button>
             : <button className="scrivi" onClick={tornaInSelezione} title="Esci dalla cella (Esc)">✓ fatto</button>}
@@ -1561,13 +1625,37 @@ function RichText({value, onChange, placeholder, docKey}){
         onMouseDown={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(!td || !ref.current.contains(td)){ 
-            if(modo==='sel'){ puliscoSel(); setInTable(false); setTblBox(null); }
+            if(modo==='sel'){ puliscoSel(); setInTable(false); setTblBox(null); setMulti(false); }
             return;
           }
           if(modo === 'edit' && td === cellaRef.current) return;   // sto già scrivendo qui
           e.preventDefault();
-          selezionaCella(td, {aggiungi: e.ctrlKey || e.metaKey, estendi: e.shiftKey});
+          selezionaCella(td, {aggiungi: multi || e.ctrlKey || e.metaKey, estendi: e.shiftKey});
+          if(!multi) trascina.current = true;
         }}
+        onMouseMove={e=>{
+          if(!trascina.current || modo !== 'sel') return;
+          const td = e.target.closest && e.target.closest('td,th');
+          if(td && ref.current.contains(td)) estendiFinoA(td);
+        }}
+        onMouseUp={()=>{ trascina.current = false; }}
+        onMouseLeave={()=>{ trascina.current = false; }}
+        onTouchStart={e=>{
+          if(modo !== 'sel') return;
+          const t = e.touches[0];
+          const td = cellaDaPunto(t.clientX, t.clientY);
+          if(td){ trascina.current = true; }
+        }}
+        onTouchMove={e=>{
+          if(!trascina.current || modo !== 'sel' || multi) return;
+          const t = e.touches[0];
+          const td = cellaDaPunto(t.clientX, t.clientY);
+          if(td && attivaRef.current && td !== attivaRef.current){
+            e.preventDefault();          // sto selezionando, non scorrendo
+            estendiFinoA(td);
+          }
+        }}
+        onTouchEnd={()=>{ trascina.current = false; }}
         onDoubleClick={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
@@ -1575,6 +1663,10 @@ function RichText({value, onChange, placeholder, docKey}){
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
         onKeyDown={e=>{
+          if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
+            e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return;
+          }
+          if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); ripeti(); return; }
           if(modo === 'sel') return;   // già gestito dall'ascoltatore della pagina
           if(navigaTabella(e)) return;
           scorciatoiaElenco(e);
