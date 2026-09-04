@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "4 set · gruppi nel testo";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "4 set · gruppi e tabelle";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1024,7 +1024,7 @@ function RichText({value, onChange, placeholder, docKey}){
     if(!sel || !sel.rangeCount || !ref.current.contains(sel.anchorNode)) return [];
     const su = (n) => {
       while(n && n!==ref.current){
-        if(n.nodeType===1 && /^(P|DIV|LI|H2|H3|BLOCKQUOTE|TD|TH)$/.test(n.tagName)) return n;
+        if(n.nodeType===1 && /^(P|DIV|LI|H2|H3|BLOCKQUOTE|TD|TH|TABLE)$/.test(n.tagName)) return n;
         n = n.parentNode;
       }
       return null;
@@ -1032,7 +1032,7 @@ function RichText({value, onChange, placeholder, docKey}){
     const a = su(sel.anchorNode), b = su(sel.focusNode);
     if(!a && !b) return [ref.current];
     if(a===b || !b) return [a].filter(Boolean);
-    const tutti = Array.from(ref.current.querySelectorAll('p,div,li,h2,h3,blockquote'));
+    const tutti = Array.from(ref.current.querySelectorAll('p,div,li,h2,h3,blockquote,table'));
     const i = tutti.indexOf(a), j = tutti.indexOf(b);
     if(i<0 || j<0) return [a,b].filter(Boolean);
     return tutti.slice(Math.min(i,j), Math.max(i,j)+1);
@@ -1046,7 +1046,31 @@ function RichText({value, onChange, placeholder, docKey}){
     return (n && ref.current.contains(n)) ? n.closest('.grp') : null;
   };
   const raggruppa = () => {
-    const bl = blocchiSelezionati().filter(el=>el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c'));
+    let bl = blocchiSelezionati().filter(el=>
+      el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c') && el.tagName !== 'TD' && el.tagName !== 'TH');
+    // tolgo i blocchi già contenuti in altri della lista, per non annidare
+    bl = bl.filter(el => !bl.some(altro => altro !== el && altro.contains(el)));
+
+    // se sono dentro una tabella, la raggruppo con la riga che la precede
+    if(bl.length < 2){
+      const cella = cellaCorrente() || cellFromSelection();
+      const tab = cella ? cella.closest('table') : (bl[0] && bl[0].tagName === 'TABLE' ? bl[0] : null);
+      if(tab && ref.current.contains(tab)){
+        const prima = tab.previousElementSibling;
+        const grp = document.createElement('div'); grp.className = 'grp';
+        const tit = document.createElement('div'); tit.className = 'grp-t';
+        const cnt = document.createElement('div'); cnt.className = 'grp-c';
+        tit.innerHTML = (prima && !prima.classList.contains('grp')) ? prima.innerHTML : 'Tabella';
+        tab.parentNode.insertBefore(grp, tab);
+        grp.appendChild(tit);
+        cnt.appendChild(tab);
+        grp.appendChild(cnt);
+        if(prima && !prima.classList.contains('grp')) prima.remove();
+        puliscoSel(); setInTable(false); setTblBox(null);
+        emit(true);
+        return;
+      }
+    }
     if(bl.length < 2){ alert('Seleziona il titolo e almeno una riga sotto di esso.'); return; }
     const grp = document.createElement('div'); grp.className = 'grp';
     const tit = document.createElement('div'); tit.className = 'grp-t';
@@ -1062,7 +1086,27 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const sciogli = () => {
     const g = dentroGruppo();
-    if(!g){ alert('Metti il cursore dentro un gruppo da sciogliere.'); return; }
+    if(!g){ alert('Metti il cursore dentro un gruppo, o seleziona le righe da farne uscire.'); return; }
+
+    // righe selezionate dentro il contenuto: le porto fuori senza toccare il resto
+    const sel = window.getSelection();
+    const dentroCnt = blocchiSelezionati().filter(el=>{
+      const c = el.closest && el.closest('.grp-c');
+      return c && g.contains(c) && el !== c && !el.classList.contains('grp-t');
+    });
+    if(dentroCnt.length && sel && !sel.isCollapsed){
+      const puliti = dentroCnt.filter(el => !dentroCnt.some(a => a !== el && a.contains(el)));
+      puliti.forEach(el => g.parentNode.insertBefore(el, g.nextSibling));
+      const cnt0 = g.querySelector('.grp-c');
+      if(cnt0 && !cnt0.children.length){          // gruppo rimasto vuoto: lo sciolgo del tutto
+        const t0 = g.querySelector('.grp-t');
+        const p0 = document.createElement('p'); p0.innerHTML = t0 ? t0.innerHTML : '';
+        g.parentNode.insertBefore(p0, g); g.remove();
+      }
+      emit(true);
+      return;
+    }
+
     const tit = g.querySelector('.grp-t'), cnt = g.querySelector('.grp-c');
     const p = document.createElement('p');
     p.innerHTML = tit ? tit.innerHTML : '';
@@ -1823,8 +1867,8 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
-        <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo">⊟</button>
-        <button onClick={sciogli} title="Sciogli il gruppo dove si trova il cursore">⊞</button>
+        <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo. Dentro una tabella, la raggruppa con la riga sopra">⊟</button>
+        <button onClick={sciogli} title="Sciogli: con il cursore nel gruppo lo apre tutto, con delle righe selezionate porta fuori solo quelle">⊞</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
