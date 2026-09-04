@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "4 set · formati numerici";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "4 set · numeri e colore cella";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -219,7 +219,13 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   border-radius:4px;font-size:13px;white-space:nowrap}
 .pal-riga:hover{background:var(--line-soft)}
 .pal-riga .glifo{display:inline-block;width:18px;color:var(--muted)}
-.pal.larga{min-width:210px;max-height:60vh;overflow:auto}
+.pal.larga{min-width:236px;max-height:min(420px,66vh);overflow-y:auto}
+.pal .due{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px}
+.pal-box{display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);background:var(--paper);
+  border-radius:var(--radius);padding:7px 8px;text-align:left;line-height:1.25}
+.pal-box b{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pal-box span{font-size:10.5px;color:var(--muted)}
+.pal-box:hover{border-color:var(--accent);background:var(--accent-soft)}
 .pal-riga .es{display:inline-block;min-width:76px;font-variant-numeric:tabular-nums;color:var(--ink);
   font-weight:500;margin-right:6px}
 .rt{
@@ -256,8 +262,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button:hover{background:#255840;color:#fff}
 .rt-ctx{flex-wrap:wrap;max-width:min(420px,92vw)}
 .rt-ctx .sep{width:1px;align-self:stretch;background:#d5e3da;margin:0 2px}
-.ink-cell{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid #c9ded2;
-  background:linear-gradient(135deg,#fcf3b0 50%,#d6e8f5 50%);vertical-align:-2px}
+.ink-cell{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #b9c7bf;vertical-align:-2px}
+.rt-ctx .split-main{padding-right:5px}
+.rt-ctx .split-caret{padding:4px 5px 4px 2px;font-size:9px;min-width:0}
 .rt-ctx .pal{top:100%;left:0;margin-top:6px}
 .rt-ctx button.attivo{background:var(--accent);color:#fff;box-shadow:0 0 0 2px rgba(47,111,78,.25)}
 .rt-ctx button.del{background:#f7e9e8;color:var(--red)}
@@ -842,6 +849,8 @@ function RichText({value, onChange, placeholder, docKey}){
   const [ultimoEvid,setUltimoEvid] = useState(()=> local.get('quaderno:ultimoEvid') || '#fcf3b0');
   const ricordaTesto = (v) => { setUltimoTesto(v); local.set('quaderno:ultimoTesto', v); };
   const ricordaEvid  = (v) => { setUltimoEvid(v);  local.set('quaderno:ultimoEvid', v); };
+  const [ultimoCella,setUltimoCella] = useState(()=> local.get('quaderno:ultimoCella') || '#e9ede9');
+  const ricordaCella = (v) => { setUltimoCella(v); local.set('quaderno:ultimoCella', v); };
   const ricorda = (v) => {
     setRecenti(p=>{
       const n = [v, ...p.filter(x=>x!==v)].slice(0,8);
@@ -976,7 +985,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const coloreScelto = (v) => {
     ricorda(v);
-    if(targetRef.current==='cella') coloraCelle(v);
+    if(targetRef.current==='cella'){ ricordaCella(v); coloraCelle(v); }
     else if(targetRef.current==='evid'){ ricordaEvid(v); evidenzia(v); }
     else { ricordaTesto(v); cmdCss('foreColor', v); }
   };
@@ -1856,30 +1865,47 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={()=>larghezzaColonna(30)} title="Allarga la colonna">←→</button>
           <button onClick={larghezzaAuto} title="Larghezza automatica">auto</button>
           <span className="sep"></span>
-          <button onClick={()=>setPal(pal==='cella'?null:'cella')} title="Colore della cella">
-            <span className="ink-cell"></span>
-          </button>
+          <span className="pal-wrap">
+            <button className="split-main" onClick={()=>{ ricorda(ultimoCella); coloraCelle(ultimoCella); }}
+              title="Colora di nuovo con questo colore">
+              <span className="ink-cell" style={{background:ultimoCella}}></span>
+            </button>
+            <button className="split-caret" onClick={()=>setPal(pal==='cella'?null:'cella')}
+              title="Scegli un altro colore per la cella">▾</button>
+            {pal==='cella' && (
+              <Palette colori={COLORI_EVID} evid etichetta="Togli il colore" recenti={recenti}
+                onCustom={()=>{ targetRef.current='cella'; salvaRange(); colorRef.current.value='#e9ede9'; colorRef.current.click(); }}
+                onPick={v=>{ ricorda(v); ricordaCella(v); coloraCelle(v); }}
+                onClear={()=>coloraCelle(null)}/>
+            )}
+          </span>
           <span className="pal-wrap">
             <button onClick={()=>setPal(pal==='num'?null:'num')} title="Formato dei numeri">123</button>
             {pal==='num' && (
               <div className="pal larga" onMouseDown={e=>e.preventDefault()}>
-                <div className="pal-tit">Separatore delle migliaia</div>
-                <button className="pal-riga" onClick={()=>formattaNumero('migliaia')}>
-                  <span className="es">1.234,5</span> punto
-                </button>
-                <button className="pal-riga" onClick={()=>formattaNumero('apostrofo')}>
-                  <span className="es">1'234,5</span> apostrofo
-                </button>
+                <div className="pal-tit">Migliaia</div>
+                <div className="due">
+                  <button className="pal-box" onClick={()=>formattaNumero('migliaia')}>
+                    <b>1.234,5</b><span>punto</span>
+                  </button>
+                  <button className="pal-box" onClick={()=>formattaNumero('apostrofo')}>
+                    <b>1'234,5</b><span>apostrofo</span>
+                  </button>
+                </div>
                 <div className="pal-tit">Percentuale</div>
-                <button className="pal-riga" onClick={()=>formattaNumero('percento')}>
-                  <span className="es">15 → 15%</span> aggiungi il simbolo
-                </button>
-                <button className="pal-riga" onClick={()=>formattaNumero('daRapporto')}>
-                  <span className="es">0,15 → 15%</span> moltiplica per cento
-                </button>
+                <div className="due">
+                  <button className="pal-box" onClick={()=>formattaNumero('percento')}>
+                    <b>15 → 15%</b><span>solo simbolo</span>
+                  </button>
+                  <button className="pal-box" onClick={()=>formattaNumero('daRapporto')}>
+                    <b>0,15 → 15%</b><span>per cento</span>
+                  </button>
+                </div>
                 <div className="pal-tit">Decimali</div>
-                <button className="pal-riga" onClick={()=>formattaNumero('piuDec')}>Aggiungi un decimale</button>
-                <button className="pal-riga" onClick={()=>formattaNumero('menoDec')}>Togli un decimale</button>
+                <div className="due">
+                  <button className="pal-box" onClick={()=>formattaNumero('piuDec')}><b>,00 +</b><span>aggiungi</span></button>
+                  <button className="pal-box" onClick={()=>formattaNumero('menoDec')}><b>,0 −</b><span>togli</span></button>
+                </div>
                 <button className="pal-clear" onClick={()=>formattaNumero('grezzo')}>Numero senza formato</button>
               </div>
             )}
@@ -1913,12 +1939,6 @@ function RichText({value, onChange, placeholder, docKey}){
           <span className="sep"></span>
           <button className="del" onClick={delTable}>elimina</button>
 
-          {pal==='cella' && (
-            <Palette colori={COLORI_EVID} evid etichetta="Togli il colore" recenti={recenti}
-              onCustom={()=>{ targetRef.current='cella'; salvaRange(); colorRef.current.value='#e9ede9'; colorRef.current.click(); }}
-              onPick={v=>{ ricorda(v); coloraCelle(v); }}
-              onClear={()=>coloraCelle(null)}/>
-          )}
         </div>
       )}
 
