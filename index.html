@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "4 set · numeri e colore cella";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "4 set · gruppi nel testo";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -241,6 +241,15 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt li{margin:3px 0}
 .rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
 .rt a{color:var(--accent)}
+.grp{border-left:2px solid var(--line);padding-left:12px;margin:14px 0}
+.grp-t{font-weight:600;position:relative;padding-left:20px}
+.grp-t::before{content:'▾';position:absolute;left:0;top:0;color:var(--muted);font-size:13px;cursor:pointer;
+  width:20px;font-family:var(--sans)}
+.grp-t:hover::before{color:var(--accent)}
+.grp.chiuso > .grp-t::before{content:'▸'}
+.grp.chiuso > .grp-c{display:none}
+.grp.chiuso > .grp-t::after{content:'…';color:var(--muted);margin-left:8px;font-weight:400}
+.grp-c{margin-top:4px}
 .rt table{border-collapse:collapse;width:100%;margin:14px 0;font-family:var(--sans);font-size:13.5px}
 .rt table td,.rt table th{border:1px solid var(--line);padding:6px 9px;vertical-align:top;min-width:40px}
 .rt table th{background:var(--shell);text-align:left;font-weight:600}
@@ -480,6 +489,9 @@ function azioniHtml(azioni){
 }
 
 /* ═══════════ generazione HTML per export ═══════════ */
+/* negli export i gruppi si mostrano sempre per intero */
+const apriGruppi = h => String(h||'').replace(/class="grp chiuso"/g, 'class="grp"').replace(/\bgrp chiuso\b/g, 'grp');
+
 function docToHtml(doc, sezione){
   const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   let h = '';
@@ -503,7 +515,7 @@ function docToHtml(doc, sezione){
       h += '</ol>';
     }
     if(doc.corpo && stripHtml(doc.corpo)){
-      h += '<h2>Note</h2><div>'+doc.corpo+'</div>';
+      h += '<h2>Note</h2><div>'+apriGruppi(doc.corpo)+'</div>';
     }
     if(doc.decisioni && doc.decisioni.length){
       h += '<h2>Decisioni</h2><ul>' + doc.decisioni.map(d=>`<li>${e(d.testo)}</li>`).join('') + '</ul>';
@@ -518,7 +530,7 @@ function docToHtml(doc, sezione){
       if(doc.obiettivo) meta.push(['In sintesi', doc.obiettivo]);
       h += '<table class="meta">' + meta.map(([k,v])=>`<tr><td class="k">${e(k)}</td><td>${e(v)}</td></tr>`).join('') + '</table>';
     }
-    h += '<div>'+(doc.corpo||'')+'</div>';
+    h += '<div>'+apriGruppi(doc.corpo)+'</div>';
     if(doc.azioni && doc.azioni.length){
       h += azioniHtml(doc.azioni);
     }
@@ -560,6 +572,9 @@ ol,ul{padding-left:16pt;margin:5pt 0}
 li{margin:3pt 0}
 .note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
+.grp{border-left:2px solid #d5dcd7;padding-left:10pt;margin:9pt 0}
+.grp-t{font-weight:bold}
+.grp-c{margin-top:3pt}
 .doc-sep{page-break-after:always}
 `;
 }
@@ -596,6 +611,9 @@ function pdfDomCss(o){
 .pdfdoc img{max-width:100%;height:auto}
 .pdfdoc figure{margin:12px 0;text-align:center}
 .pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
+.pdfdoc .grp{border-left:2px solid #d5dcd7;padding-left:13px;margin:12px 0}
+.pdfdoc .grp-t{font-weight:bold}
+.pdfdoc .grp-c{margin-top:4px}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
 }
@@ -1018,6 +1036,40 @@ function RichText({value, onChange, placeholder, docKey}){
     const i = tutti.indexOf(a), j = tutti.indexOf(b);
     if(i<0 || j<0) return [a,b].filter(Boolean);
     return tutti.slice(Math.min(i,j), Math.max(i,j)+1);
+  };
+
+  /* raggruppa i blocchi selezionati: il primo diventa il titolo, gli altri il contenuto pieghevole */
+  const dentroGruppo = () => {
+    const sel = window.getSelection();
+    let n = sel && sel.anchorNode;
+    if(n && n.nodeType === 3) n = n.parentElement;
+    return (n && ref.current.contains(n)) ? n.closest('.grp') : null;
+  };
+  const raggruppa = () => {
+    const bl = blocchiSelezionati().filter(el=>el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c'));
+    if(bl.length < 2){ alert('Seleziona il titolo e almeno una riga sotto di esso.'); return; }
+    const grp = document.createElement('div'); grp.className = 'grp';
+    const tit = document.createElement('div'); tit.className = 'grp-t';
+    const cnt = document.createElement('div'); cnt.className = 'grp-c';
+    const primo = bl[0];
+    primo.parentNode.insertBefore(grp, primo);
+    tit.innerHTML = primo.innerHTML || 'Titolo del gruppo';
+    grp.appendChild(tit);
+    bl.slice(1).forEach(b=>cnt.appendChild(b));
+    grp.appendChild(cnt);
+    primo.remove();
+    emit(true);
+  };
+  const sciogli = () => {
+    const g = dentroGruppo();
+    if(!g){ alert('Metti il cursore dentro un gruppo da sciogliere.'); return; }
+    const tit = g.querySelector('.grp-t'), cnt = g.querySelector('.grp-c');
+    const p = document.createElement('p');
+    p.innerHTML = tit ? tit.innerHTML : '';
+    g.parentNode.insertBefore(p, g);
+    if(cnt) while(cnt.firstChild) g.parentNode.insertBefore(cnt.firstChild, g);
+    g.remove();
+    emit(true);
   };
 
   const setAllineamento = (v) => {
@@ -1771,6 +1823,8 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
+        <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo">⊟</button>
+        <button onClick={sciogli} title="Sciogli il gruppo dove si trova il cursore">⊞</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
@@ -1982,6 +2036,13 @@ function RichText({value, onChange, placeholder, docKey}){
         onContextMenu={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td) && (e.ctrlKey || modo === 'sel')) e.preventDefault();
+        }}
+        onClick={e=>{
+          const t = e.target.closest && e.target.closest('.grp-t');
+          if(t && e.nativeEvent.offsetX < 24){
+            t.parentNode.classList.toggle('chiuso');
+            emit(true);
+          }
         }}
         onDoubleClick={e=>{
           const td = e.target.closest && e.target.closest('td,th');
