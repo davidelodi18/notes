@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "4 set · gruppi e tabelle";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "4 set · gruppo tabella";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1056,16 +1056,26 @@ function RichText({value, onChange, placeholder, docKey}){
       const cella = cellaCorrente() || cellFromSelection();
       const tab = cella ? cella.closest('table') : (bl[0] && bl[0].tagName === 'TABLE' ? bl[0] : null);
       if(tab && ref.current.contains(tab)){
-        const prima = tab.previousElementSibling;
+        // risalgo saltando le righe vuote che l'editor lascia intorno alle tabelle
+        const eVuoto = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
+        let prima = tab.previousElementSibling;
+        const daTogliere = [];
+        while(prima && eVuoto(prima) && !prima.classList.contains('grp')){
+          daTogliere.push(prima);
+          prima = prima.previousElementSibling;
+        }
+        const titoloValido = prima && !prima.classList.contains('grp') && prima.tagName !== 'TABLE' && !eVuoto(prima);
+
         const grp = document.createElement('div'); grp.className = 'grp';
         const tit = document.createElement('div'); tit.className = 'grp-t';
         const cnt = document.createElement('div'); cnt.className = 'grp-c';
-        tit.innerHTML = (prima && !prima.classList.contains('grp')) ? prima.innerHTML : 'Tabella';
+        tit.innerHTML = titoloValido ? prima.innerHTML : 'Tabella';
         tab.parentNode.insertBefore(grp, tab);
         grp.appendChild(tit);
         cnt.appendChild(tab);
         grp.appendChild(cnt);
-        if(prima && !prima.classList.contains('grp')) prima.remove();
+        daTogliere.forEach(el=>el.remove());
+        if(titoloValido) prima.remove();
         puliscoSel(); setInTable(false); setTblBox(null);
         emit(true);
         return;
@@ -2022,6 +2032,7 @@ function RichText({value, onChange, placeholder, docKey}){
           <button className={fmtPreso?'attivo':''} onClick={fmtPreso?incollaFormato:copiaFormato}
             title={fmtPreso? 'Applica il formato copiato' : 'Copia il formato di questa cella'}>🖌</button>
           <span className="sep"></span>
+          <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
           <button onClick={unisciCelle} title="Unisci le celle selezionate">⇥⇤</button>
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
           <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
