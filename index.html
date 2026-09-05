@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "4 set · gruppo tabella";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "5 set · titolo staccato";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -241,15 +241,18 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt li{margin:3px 0}
 .rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
 .rt a{color:var(--accent)}
-.grp{border-left:2px solid var(--line);padding-left:12px;margin:14px 0}
-.grp-t{font-weight:600;position:relative;padding-left:20px}
-.grp-t::before{content:'▾';position:absolute;left:0;top:0;color:var(--muted);font-size:13px;cursor:pointer;
+.grp{margin:22px 0}
+.grp-t{font-weight:600;position:relative;padding-left:22px;margin-bottom:12px}
+.grp-t::before{content:'▾';position:absolute;left:0;top:1px;color:var(--muted);font-size:13px;cursor:pointer;
   width:20px;font-family:var(--sans)}
 .grp-t:hover::before{color:var(--accent)}
+.grp.chiuso > .grp-t{margin-bottom:4px}
 .grp.chiuso > .grp-t::before{content:'▸'}
 .grp.chiuso > .grp-c{display:none}
 .grp.chiuso > .grp-t::after{content:'…';color:var(--muted);margin-left:8px;font-weight:400}
-.grp-c{margin-top:4px}
+.grp-c{border-left:2px solid var(--line-soft);padding-left:14px;margin-left:7px}
+.grp-c > *:first-child{margin-top:0}
+.grp-c table{margin-top:0}
 .rt table{border-collapse:collapse;width:100%;margin:14px 0;font-family:var(--sans);font-size:13.5px}
 .rt table td,.rt table th{border:1px solid var(--line);padding:6px 9px;vertical-align:top;min-width:40px}
 .rt table th{background:var(--shell);text-align:left;font-weight:600}
@@ -572,9 +575,9 @@ ol,ul{padding-left:16pt;margin:5pt 0}
 li{margin:3pt 0}
 .note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
-.grp{border-left:2px solid #d5dcd7;padding-left:10pt;margin:9pt 0}
-.grp-t{font-weight:bold}
-.grp-c{margin-top:3pt}
+.grp{margin:14pt 0}
+.grp-t{font-weight:bold;margin-bottom:7pt}
+.grp-c{border-left:2px solid #d5dcd7;padding-left:10pt;margin-left:4pt}
 .doc-sep{page-break-after:always}
 `;
 }
@@ -611,9 +614,10 @@ function pdfDomCss(o){
 .pdfdoc img{max-width:100%;height:auto}
 .pdfdoc figure{margin:12px 0;text-align:center}
 .pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
-.pdfdoc .grp{border-left:2px solid #d5dcd7;padding-left:13px;margin:12px 0}
-.pdfdoc .grp-t{font-weight:bold}
-.pdfdoc .grp-c{margin-top:4px}
+.pdfdoc .grp{margin:20px 0}
+.pdfdoc .grp-t{font-weight:bold;margin-bottom:10px}
+.pdfdoc .grp-c{border-left:2px solid #d5dcd7;padding-left:14px;margin-left:6px}
+.pdfdoc .grp-c > *:first-child{margin-top:0}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
 }
