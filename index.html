@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "5 set · titolo staccato";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "5 set · barra fissa mobile";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -341,9 +341,13 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 
 @media(max-width:900px){
   html{-webkit-text-size-adjust:100%}
-  body{overflow-x:hidden}
+  /* clip invece di hidden: hidden creerebbe un'area di scorrimento e la barra non resterebbe agganciata */
+  body{overflow-x:clip}
+  @supports not (overflow-x: clip){ body{overflow-x:visible} }
   .app{display:block;height:auto;overflow:visible}
   .col-sections,.col-list,.col-doc{width:auto;border-right:0;height:auto;max-width:100%}
+  .col-doc{overflow:visible}
+  .col-list,.nav{overflow:visible}
   .col-sections{border-bottom:1px solid var(--line)}
   .col-list{border-bottom:1px solid var(--line)}
   .hide-m{display:none!important}
@@ -354,7 +358,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   /* niente zoom automatico su iOS: i campi devono partire da 16px */
   input,select,textarea{font-size:16px}
 
-  .doc-bar{padding:8px 12px;gap:5px;flex-wrap:nowrap;overflow:visible}
+  .doc-bar{padding:8px 12px;gap:5px;flex-wrap:nowrap;overflow:visible;position:sticky;top:0;z-index:9}
   .doc-bar .btn.sm{padding:7px 10px}
   .doc-bar select.btn{max-width:130px;text-overflow:ellipsis}
   .saved{min-width:0;font-size:11px}
