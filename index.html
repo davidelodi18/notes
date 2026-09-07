@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · righe complete";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · navigazione tabella";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -587,7 +587,7 @@ li{margin:3pt 0}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
 .grp{margin:14pt 0}
 .grp-t{font-weight:bold;margin-bottom:7pt}
-.grp-c{border-left:2px solid #d5dcd7;padding-left:10pt;margin-left:4pt}
+.grp-c{margin-left:0;padding-left:0}
 .doc-sep{page-break-after:always}
 `;
 }
@@ -626,7 +626,7 @@ function pdfDomCss(o){
 .pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
 .pdfdoc .grp{margin:20px 0}
 .pdfdoc .grp-t{font-weight:bold;margin-bottom:10px}
-.pdfdoc .grp-c{border-left:2px solid #d5dcd7;padding-left:14px;margin-left:6px}
+.pdfdoc .grp-c{margin-left:0;padding-left:0}
 .pdfdoc .grp-c > *:first-child{margin-top:0}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
@@ -1610,7 +1610,10 @@ function RichText({value, onChange, placeholder, docKey}){
     const ri = qui.r, ci = qui.c;
 
     const vaiCella = (r, c, estendi) => {
-      const td = cellaIn(gr, r, c);
+      let td = cellaIn(gr, r, c);
+      if(!td && r >= 0 && r < gr.nRighe){          // riga più corta: prendo la cella più vicina
+        for(let k=Math.min(c, gr.nCol-1); k>=0 && !td; k--) td = cellaIn(gr, r, k);
+      }
       if(!td || td === cell) return false;
       selezionaCella(td, {estendi});
       td.scrollIntoView({block:'nearest', inline:'nearest'});
@@ -1673,6 +1676,12 @@ function RichText({value, onChange, placeholder, docKey}){
     if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
       e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return true;
     }
+    if((e.ctrlKey || e.metaKey) && !e.altKey && 'biu'.indexOf((e.key||'').toLowerCase()) >= 0){
+      e.preventDefault();
+      const k = e.key.toLowerCase();
+      cmd(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline');
+      return true;
+    }
     if((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')){
       e.preventDefault(); copiaCelle(false); return true;
     }
@@ -1721,17 +1730,30 @@ function RichText({value, onChange, placeholder, docKey}){
     const tab = cell.closest('table');
     const riga = cell.parentNode;
     const righe = celleDi(tab);
-    const ri = righe.indexOf(riga);
-    const ci = Array.prototype.indexOf.call(riga.children, cell);
+    const gr = grigliaDi(tab);
+    const qui = gr.dove.get(cell) || {r:0, c:0, rs:1, cs:1};
+    const ri = qui.r, ci = qui.c;
+    // cerca la cella nella posizione indicata; se lì non c'è (riga più corta) prende la più vicina a sinistra
+    const cellaVicina = (r, c) => {
+      if(r < 0 || r >= gr.nRighe) return null;
+      for(let k = Math.min(c, gr.nCol-1); k >= 0; k--){
+        const td = cellaIn(gr, r, k);
+        if(td && td !== cell) return td;
+      }
+      for(let k = c+1; k < gr.nCol; k++){
+        const td = cellaIn(gr, r, k);
+        if(td && td !== cell) return td;
+      }
+      return null;
+    };
 
     if(e.key === 'Tab'){
       e.preventDefault();
       if(e.shiftKey){
-        const prec = cell.previousElementSibling
-          || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
+        const prec = cellaIn(gr, ri, ci-1) || cellaVicina(ri-1, gr.nCol-1);
         if(prec) entraInModifica(prec);
       } else {
-        let succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
+        let succ = cellaIn(gr, ri, ci + qui.cs) || cellaIn(gr, ri + qui.rs, 0);
         if(!succ) succ = nuovaRigaIn(tab, riga).children[0];   // in fondo: nuova riga
         entraInModifica(succ);
       }
@@ -1745,7 +1767,7 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     if(e.key === 'Enter'){
       e.preventDefault();
-      const sotto = righe[ri+1] && righe[ri+1].children[ci];
+      const sotto = cellaIn(gr, ri + qui.rs, ci) || cellaVicina(ri + qui.rs, ci);
       if(sotto) entraInModifica(sotto);          // scende alla cella sotto, pronta a ricevere testo
       return true;
     }
@@ -1753,21 +1775,21 @@ function RichText({value, onChange, placeholder, docKey}){
     /* frecce su e giù: cambio cella, come in un foglio di calcolo */
     if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
       const giu = e.key === 'ArrowDown';
-      const vicina = righe[ri + (giu?1:-1)];
-      if(vicina && vicina.children[ci]){ e.preventDefault(); entraInModifica(vicina.children[ci]); return true; }
-      return false;   // in fondo alla tabella lascio fare al browser, senza creare righe
+      const r = giu ? ri + qui.rs : ri - 1;
+      const td = cellaIn(gr, r, ci) || cellaVicina(r, ci);
+      if(td){ e.preventDefault(); entraInModifica(td); return true; }
+      return false;   // fuori dalla tabella lascio fare al browser
     }
 
     /* frecce destra e sinistra: nel testo, e cambiano cella quando sono al bordo */
     if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
       const b = aiBordi(cell);
       if(e.key === 'ArrowRight' && b.fine){
-        const succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
+        const succ = cellaIn(gr, ri, ci + qui.cs) || cellaIn(gr, ri + qui.rs, 0);
         if(succ){ e.preventDefault(); entraInModifica(succ); return true; }
       }
       if(e.key === 'ArrowLeft' && b.inizio){
-        const prec = cell.previousElementSibling
-          || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
+        const prec = cellaIn(gr, ri, ci-1) || cellaVicina(ri-1, gr.nCol-1);
         if(prec){ e.preventDefault(); entraInModifica(prec); return true; }
       }
       return false;
@@ -1885,14 +1907,51 @@ function RichText({value, onChange, placeholder, docKey}){
     const sotto = inl.textDecoration || st.textDecorationLine || '';
     const colore = inl.color || st.color;
     const sfondo = inl.backgroundColor || st.backgroundColor;
+    const eCella = n.tagName === 'TD' || n.tagName === 'TH';
     fmtTesto.current = {
       bold: eGrassetto(peso),
       italic: corsivo === 'italic',
       underline: (sotto||'').includes('underline'),
       color: vuoto(colore) ? '' : colore,
-      bg: vuoto(sfondo) ? null : sfondo
+      bg: vuoto(sfondo) ? null : sfondo,
+      // dalle celle prendo anche il resto dell'aspetto
+      cella: eCella,
+      textAlign: eCella ? (inl.textAlign || '') : '',
+      verticalAlign: eCella ? (inl.verticalAlign || '') : '',
+      width: eCella ? (inl.width || '') : '',
+      lineHeight: eCella ? (inl.lineHeight || '') : '',
+      fontSize: eCella ? (inl.fontSize || '') : '',
+      colSpan: eCella ? (n.colSpan || 1) : 1,
+      rowSpan: eCella ? (n.rowSpan || 1) : 1
     };
     setFmtTPreso(true);
+  };
+
+  /* riproduce un'unione su una cella di destinazione */
+  const unisciDa = (cella, rs, cs) => {
+    if(rs < 2 && cs < 2) return;
+    const tab = cella.closest('table');
+    const gr = grigliaDi(tab);
+    const p = gr.dove.get(cella);
+    if(!p) return;
+    const testi = [];
+    const daTogliere = new Set();
+    for(let r=p.r; r<p.r+rs; r++){
+      for(let c=p.c; c<p.c+cs; c++){
+        const td = cellaIn(gr, r, c);
+        if(td && td !== cella) daTogliere.add(td);
+      }
+    }
+    daTogliere.forEach(td=>{
+      const t = td.innerHTML.replace(/^<br>$/,'').trim();
+      if(t) testi.push(t);
+      td.remove();
+    });
+    if(testi.length){
+      const mio = cella.innerHTML.replace(/^<br>$/,'').trim();
+      cella.innerHTML = [mio, ...testi].filter(Boolean).join(' ') || '<br>';
+    }
+    cella.colSpan = cs; cella.rowSpan = rs;
   };
   const incollaFormatoTesto = (daSelezione) => {
     const f = fmtTesto.current;
@@ -1906,7 +1965,20 @@ function RichText({value, onChange, placeholder, docKey}){
       color: f.color || '',
       backgroundColor: f.bg || ''
     };
-    if(applicaStileCelle(stile)){ setFmtTPreso(false); return; }
+    if(f.cella){
+      ['textAlign','verticalAlign','width','lineHeight','fontSize'].forEach(k=>{ stile[k] = f[k] || ''; });
+    }
+    const destinazioni = celleScelte();
+    if(destinazioni.length){
+      applicaStileCelle(stile);
+      if(f.cella && (f.colSpan > 1 || f.rowSpan > 1)){
+        destinazioni.filter(td=>td.isConnected).forEach(td=>unisciDa(td, f.rowSpan, f.colSpan));
+        puliscoSel(); setInTable(false); setTblBox(null);
+        emit(true);
+      }
+      setFmtTPreso(false);
+      return;
+    }
 
     if(!daSelezione){ ref.current.focus(); ripristinaRange(); }
     const sel = window.getSelection();
@@ -2171,7 +2243,9 @@ function RichText({value, onChange, placeholder, docKey}){
         onChange={e=>coloreScelto(e.target.value)}/>
 
       {busy && <div className="peso">{busy}</div>}
-      {fmtTPreso && <div className="avviso-pennello">🖌 Pennello attivo — seleziona il testo da formattare (Esc per annullare)</div>}
+      {fmtTPreso && <div className="avviso-pennello">
+        🖌 Pennello attivo — nel testo: seleziona e si applica da solo. Nelle tabelle: scegli le celle e ripremi 🖌. (Esc per annullare)
+      </div>}
 
       <div className="rt-wrap" ref={wrapRef}>
       {inTable && tblBox && (
@@ -2243,8 +2317,9 @@ function RichText({value, onChange, placeholder, docKey}){
               </div>
             )}
           </span>
-          <button className={fmtPreso?'attivo':''} onClick={fmtPreso?incollaFormato:copiaFormato}
-            title={fmtPreso? 'Applica il formato copiato' : 'Copia il formato di questa cella'}>🖌</button>
+          <button className={fmtTPreso?'attivo':''}
+            onClick={()=>{ if(fmtTPreso) incollaFormatoTesto(); else copiaFormatoTesto(); }}
+            title={fmtTPreso? 'Applica il formato alle celle scelte' : 'Copia tutto il formato di questa cella'}>🖌</button>
           <span className="sep"></span>
           <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
           <button onClick={unisciCelle} title="Unisci le celle selezionate (anche su più righe)">⇥⇤</button>
@@ -2337,7 +2412,9 @@ function RichText({value, onChange, placeholder, docKey}){
         onTouchEnd={()=>{
           trascina.current = false;
           salvaRange();
-          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
+          if(fmtTPreso && !cellFromSelection() && modo !== 'sel'){
+            setTimeout(()=>incollaFormatoTesto(true), 10);
+          }
         }}
         onBlur={salvaRange}
         onFocus={checkCtx}
