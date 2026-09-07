@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · sottosezioni";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · Invio e Tab in cella";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1043,13 +1043,24 @@ function RichText({value, onChange, placeholder, docKey}){
       }
       return null;
     };
-    const a = su(sel.anchorNode), b = su(sel.focusNode);
+    const r = sel.getRangeAt(0);
+    const a = su(r.startContainer), b = su(r.endContainer);
     if(!a && !b) return [ref.current];
     if(a===b || !b) return [a].filter(Boolean);
     const tutti = Array.from(ref.current.querySelectorAll('p,div,li,h2,h3,blockquote,table'));
     const i = tutti.indexOf(a), j = tutti.indexOf(b);
     if(i<0 || j<0) return [a,b].filter(Boolean);
-    return tutti.slice(Math.min(i,j), Math.max(i,j)+1);
+    let lista = tutti.slice(Math.min(i,j), Math.max(i,j)+1);
+
+    // trascinando fin sotto l'ultima riga il cursore finisce all'inizio del blocco successivo:
+    // se in quel blocco non è stato preso nemmeno un carattere, non fa parte della selezione
+    if(!sel.isCollapsed && lista.length > 1 && lista[lista.length-1] === b){
+      const dentroUltimo = document.createRange();
+      dentroUltimo.selectNodeContents(b);
+      dentroUltimo.setEnd(r.endContainer, r.endOffset);
+      if(!dentroUltimo.toString().replace(/\u00a0/g,'').trim()) lista = lista.slice(0, -1);
+    }
+    return lista;
   };
 
   /* raggruppa i blocchi selezionati: il primo diventa il titolo, gli altri il contenuto pieghevole */
@@ -1471,7 +1482,7 @@ function RichText({value, onChange, placeholder, docKey}){
     if(e.key === 'ArrowDown'){
       e.preventDefault();
       if(salto) return vaiCella(righe.length-1, ci, e.shiftKey) || true;
-      if(!vaiCella(ri+1, ci, e.shiftKey)){ const nr=nuovaRigaIn(tab,riga); selezionaCella(nr.children[ci]||nr.children[0]); }
+      vaiCella(ri+1, ci, e.shiftKey);      // in fondo alla tabella non aggiunge nulla
       return true;
     }
     if(e.key === 'ArrowUp'){
@@ -1556,19 +1567,18 @@ function RichText({value, onChange, placeholder, docKey}){
       if(e.shiftKey){
         const prec = cell.previousElementSibling
           || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
-        vaiA(prec);
+        if(prec) entraInModifica(prec);
       } else {
         let succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
         if(!succ) succ = nuovaRigaIn(tab, riga).children[0];   // in fondo: nuova riga
-        vaiA(succ);
+        entraInModifica(succ);
       }
       return true;
     }
-    if(e.key === 'Enter' && !e.shiftKey){
+    if(e.key === 'Enter'){
       e.preventDefault();
-      let sotto = righe[ri+1] && righe[ri+1].children[ci];
-      if(!sotto) sotto = nuovaRigaIn(tab, riga).children[ci];
-      vaiA(sotto);
+      document.execCommand('insertLineBreak');   // a capo dentro la cella
+      emit();
       return true;
     }
 
@@ -1576,9 +1586,8 @@ function RichText({value, onChange, placeholder, docKey}){
     if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
       const giu = e.key === 'ArrowDown';
       const vicina = righe[ri + (giu?1:-1)];
-      if(vicina && vicina.children[ci]){ e.preventDefault(); vaiA(vicina.children[ci]); return true; }
-      if(!vicina && giu){ e.preventDefault(); vaiA(nuovaRigaIn(tab, riga).children[ci]); return true; }
-      return false;   // fuori dalla tabella: lascio fare al browser
+      if(vicina && vicina.children[ci]){ e.preventDefault(); entraInModifica(vicina.children[ci]); return true; }
+      return false;   // in fondo alla tabella lascio fare al browser, senza creare righe
     }
 
     /* frecce destra e sinistra: nel testo, e cambiano cella quando sono al bordo */
@@ -1586,12 +1595,12 @@ function RichText({value, onChange, placeholder, docKey}){
       const b = aiBordi(cell);
       if(e.key === 'ArrowRight' && b.fine){
         const succ = cell.nextElementSibling || (righe[ri+1] && righe[ri+1].children[0]);
-        if(succ){ e.preventDefault(); vaiA(succ); return true; }
+        if(succ){ e.preventDefault(); entraInModifica(succ); return true; }
       }
       if(e.key === 'ArrowLeft' && b.inizio){
         const prec = cell.previousElementSibling
           || (righe[ri-1] && righe[ri-1].children[righe[ri-1].children.length-1]);
-        if(prec){ e.preventDefault(); vaiA(prec); return true; }
+        if(prec){ e.preventDefault(); entraInModifica(prec); return true; }
       }
       return false;
     }
@@ -2049,7 +2058,7 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
           <button onClick={unisciCelle} title="Unisci le celle selezionate">⇥⇤</button>
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
-          <button onClick={aCapoInCella} title="A capo dentro la cella">⏎</button>
+          <button onClick={aCapoInCella} title="A capo dentro la cella (o premi Invio)">⏎</button>
           <span className="sep"></span>
           <button className={multi?'attivo':''} onClick={()=>setMulti(m=>!m)}
             title={multi? 'Sto scegliendo più celle: tocca per aggiungerle' : 'Scegli più celle una a una'}>
