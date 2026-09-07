@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · Invio e Tab in cella";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · appunti celle";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1076,6 +1076,30 @@ function RichText({value, onChange, placeholder, docKey}){
     // tolgo i blocchi già contenuti in altri della lista, per non annidare
     bl = bl.filter(el => !bl.some(altro => altro !== el && altro.contains(el)));
 
+    // ho selezionato solo l'intestazione e subito sotto c'è una tabella: la includo da sola,
+    // senza toccare quello che viene dopo (a meno che non sia stato selezionato anch'esso)
+    if(bl.length === 1 && bl[0].tagName !== 'TABLE'){
+      const eVuoto0 = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
+      let dopo = bl[0].nextElementSibling;
+      const inMezzo = [];
+      while(dopo && dopo.tagName !== 'TABLE' && eVuoto0(dopo)){ inMezzo.push(dopo); dopo = dopo.nextElementSibling; }
+      if(dopo && dopo.tagName === 'TABLE'){
+        const grp = document.createElement('div'); grp.className = 'grp';
+        const tit = document.createElement('div'); tit.className = 'grp-t';
+        const cnt = document.createElement('div'); cnt.className = 'grp-c';
+        tit.innerHTML = bl[0].innerHTML;
+        bl[0].parentNode.insertBefore(grp, bl[0]);
+        grp.appendChild(tit);
+        inMezzo.forEach(el=>el.remove());
+        cnt.appendChild(dopo);
+        grp.appendChild(cnt);
+        bl[0].remove();
+        puliscoSel(); setInTable(false); setTblBox(null);
+        emit(true);
+        return;
+      }
+    }
+
     // se sono dentro una tabella, la raggruppo con la riga che la precede
     if(bl.length < 2){
       const cella = cellaCorrente() || cellFromSelection();
@@ -1455,6 +1479,46 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(true); setFmtPreso(false);
   };
 
+  /* appunti delle celle: matrice di testi, come in un foglio di calcolo */
+  const appunti = useRef(null);
+  const matriceDa = (celle) => {
+    const perRiga = new Map();
+    celle.forEach(td=>{
+      const tr = td.parentNode;
+      if(!perRiga.has(tr)) perRiga.set(tr, []);
+      perRiga.get(tr).push(td);
+    });
+    return Array.from(perRiga.values()).map(riga=>riga.map(td=>td.textContent));
+  };
+  const copiaCelle = (taglia) => {
+    const celle = celleCoinvolte();
+    if(!celle.length) return false;
+    const m = matriceDa(celle);
+    appunti.current = m;
+    const testo = m.map(r=>r.join('\t')).join('\n');
+    try{ if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(testo); }catch(err){}
+    if(taglia){ celle.forEach(td=>{ td.innerHTML = '<br>'; }); emit(true); }
+    return true;
+  };
+  const incollaCelle = (matrice) => {
+    const partenza = cellaCorrente() || cellFromSelection();
+    if(!partenza || !matrice || !matrice.length) return false;
+    const tab = partenza.closest('table');
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const r0 = righe.indexOf(partenza.parentNode);
+    const c0 = Array.prototype.indexOf.call(partenza.parentNode.children, partenza);
+    matrice.forEach((riga, i)=>{
+      const tr = righe[r0 + i];
+      if(!tr) return;                       // non allargo la tabella da solo
+      riga.forEach((val, j)=>{
+        const td = tr.children[c0 + j];
+        if(td) td.textContent = val;
+      });
+    });
+    emit(true);
+    return true;
+  };
+
   /* tasti quando si è "sopra" le celle, senza cursore dentro */
   const tastiSelezione = (e) => {
     const cell = cellaCorrente();
@@ -1522,6 +1586,17 @@ function RichText({value, onChange, placeholder, docKey}){
     if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
       e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return true;
     }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')){
+      e.preventDefault(); copiaCelle(false); return true;
+    }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')){
+      e.preventDefault(); copiaCelle(true); return true;
+    }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')){
+      // lascio fare al browser: arriva l'evento di incolla, gestito più sotto
+      if(appunti.current){ e.preventDefault(); incollaCelle(appunti.current); return true; }
+      return false;
+    }
     if((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')){
       e.preventDefault();
       selRef.current = Array.from(tab.querySelectorAll('td,th'));
@@ -1575,10 +1650,16 @@ function RichText({value, onChange, placeholder, docKey}){
       }
       return true;
     }
+    if(e.key === 'Enter' && e.shiftKey){
+      e.preventDefault();
+      document.execCommand('insertLineBreak');   // Maiusc+Invio: a capo dentro la cella
+      emit();
+      return true;
+    }
     if(e.key === 'Enter'){
       e.preventDefault();
-      document.execCommand('insertLineBreak');   // a capo dentro la cella
-      emit();
+      const sotto = righe[ri+1] && righe[ri+1].children[ci];
+      if(sotto) entraInModifica(sotto);          // scende alla cella sotto, pronta a ricevere testo
       return true;
     }
 
@@ -2058,7 +2139,7 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
           <button onClick={unisciCelle} title="Unisci le celle selezionate">⇥⇤</button>
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
-          <button onClick={aCapoInCella} title="A capo dentro la cella (o premi Invio)">⏎</button>
+          <button onClick={aCapoInCella} title="A capo dentro la cella (o Maiusc+Invio)">⏎</button>
           <span className="sep"></span>
           <button className={multi?'attivo':''} onClick={()=>setMulti(m=>!m)}
             title={multi? 'Sto scegliendo più celle: tocca per aggiungerle' : 'Scegli più celle una a una'}>
@@ -2152,6 +2233,15 @@ function RichText({value, onChange, placeholder, docKey}){
         onFocus={checkCtx}
         onPaste={e=>{
           const dt = e.clipboardData||window.clipboardData;
+          const testoPiano = dt.getData('text/plain') || '';
+          // dentro una tabella, un testo a colonne riempie le celle a partire da quella scelta
+          const inCella = cellaCorrente() || cellFromSelection();
+          if(inCella && /\t|\n/.test(testoPiano.trim())){
+            e.preventDefault();
+            const m = testoPiano.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(r=>r.split('\t'));
+            incollaCelle(m);
+            return;
+          }
           const html = dt.getData('text/html');
           if(html && /<table/i.test(html)){
             e.preventDefault();
