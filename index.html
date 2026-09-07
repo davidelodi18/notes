@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "5 set · barra fissa mobile";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "6 set · conteggio attività";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -3041,7 +3041,8 @@ function App(){
             </div>
           )}
           {docList.map(d=>{
-            const aperte = (d.azioni||[]).filter(a=>!a.fatto && a.testo.trim()).length;
+            // le macro-attività raggruppano soltanto: non sono cose da fare
+            const aperte = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
             return (
               <button key={d.id} className={'card'+(selDoc===d.id?' on':'')}
                 onClick={()=>{setSelDoc(d.id); setMobileView('doc');}}>
