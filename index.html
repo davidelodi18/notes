@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · cartelle ed elenchi";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · versioni e sicurezza";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -931,7 +931,8 @@ function RichText({value, onChange, placeholder, docKey}){
   useEffect(()=>{
     if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
-    storia.current = {stack:[value||''], i:0, bloccato:false, timer:null};
+    clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
+    storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
     setPuoAnnullare(false); setPuoRipetere(false);
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
@@ -2061,7 +2062,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
-  const storia = useRef({stack:[], i:-1, bloccato:false, timer:null});
+  const storia = useRef({stack:[], i:-1, bloccato:false, timer:null, doc:null});
   const [puoAnnullare,setPuoAnnullare] = useState(false);
   const [puoRipetere,setPuoRipetere] = useState(false);
   const aggiornaFrecce = () => {
@@ -2073,7 +2074,9 @@ function RichText({value, onChange, placeholder, docKey}){
     const st = storia.current;
     if(st.bloccato) return;
     clearTimeout(st.timer);
+    const diChi = docKey;                      // a quale documento appartiene questo stato
     const salva = () => {
+      if(st.doc !== diChi) return;             // documento cambiato: lo stato non vale più
       if(st.stack[st.i] === html) return;
       st.stack = st.stack.slice(0, st.i + 1);
       st.stack.push(html);
@@ -2808,6 +2811,59 @@ function FormatoModal({fmt, onSave, onClose}){
   );
 }
 
+/* ═══════════ versioni precedenti ═══════════ */
+function StoricoModal({doc, onRipristina, onClose}){
+  const [voci,setVoci] = useState(null);
+  useEffect(()=>{
+    if(HAS_FB){
+      fbDb.ref(ROOT+'/storico/'+doc.id).once('value').then(sn=>{
+        const v = sn.val() || {};
+        setVoci(Object.keys(v).sort().reverse().map(k=>v[k]));
+      }).catch(()=>setVoci([]));
+    } else {
+      const st = local.get(ROOT+':storico') || {};
+      setVoci([...(st[doc.id]||[])].reverse());
+    }
+  },[doc.id]);
+
+  const quando = (iso) => {
+    if(!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('it-IT') + ' alle ' + d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+  };
+  const anteprima = (v) => stripHtml(v.corpo).slice(0,110) || '(nessun testo)';
+
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
+      <div className="modal" style={{maxWidth:560}}>
+        <h3>Versioni precedenti</h3>
+        <p className="spazio-sub" style={{marginTop:-6}}>
+          Copie salvate quando il documento si è accorciato molto, e comunque ogni mezz'ora di lavoro.
+        </p>
+        {voci === null && <div className="empty">Cerco…</div>}
+        {voci && voci.length === 0 && (
+          <div className="empty"><strong>Nessuna copia</strong>Per questo documento non ci sono versioni archiviate.</div>
+        )}
+        <div style={{maxHeight:'46vh', overflowY:'auto', marginTop:8}}>
+          {voci && voci.map((v,i)=>(
+            <div className="top-doc" key={i}>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:13}}>{quando(v.salvataIl || v.aggiornato)}</div>
+                <div className="src" style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{anteprima(v)}</div>
+              </div>
+              <span className="p">{Math.round((v.corpo||'').length/1024*10)/10} KB</span>
+              <button className="btn sm" onClick={()=>{
+                if(confirm('Riportare il documento a questa versione? Quella attuale verrà a sua volta archiviata.')) onRipristina(v);
+              }}>Ripristina</button>
+            </div>
+          ))}
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Chiudi</button></div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════ login ═══════════ */
 function Login(){
   const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
@@ -2856,6 +2912,7 @@ function App(){
   const [focusId,setFocusId] = useState(null);
   const [fmt,setFmt] = useState(FORMATO_DEF);
   const [modalFmt,setModalFmt] = useState(false);
+  const [modalStorico,setModalStorico] = useState(false);
 
   useEffect(()=>{
     if(HAS_FB){
@@ -2913,9 +2970,49 @@ function App(){
     if(HAS_FB) fbDb.ref(ROOT+'/sezioni/'+id).set(obj||null);
   },[]);
 
+  /* copia di sicurezza: tengo le ultime versioni di ogni documento */
+  const ultimoBackup = useRef({});
+  const archivia = (prima) => {
+    if(!prima || !prima.id) return;
+    const ora = Date.now();
+    const key = prima.id;
+    const chiave = 'v' + ora;
+    const salvaCopia = () => {
+      ultimoBackup.current[key] = ora;
+      const copia = {...prima, salvataIl: new Date().toISOString()};
+      if(HAS_FB){
+        fbDb.ref(ROOT+'/storico/'+key+'/'+chiave).set(copia);
+        // tengo solo le ultime 10
+        fbDb.ref(ROOT+'/storico/'+key).once('value').then(sn=>{
+          const v = sn.val() || {};
+          const chiavi = Object.keys(v).sort();
+          if(chiavi.length > 10) chiavi.slice(0, chiavi.length-10)
+            .forEach(k=>fbDb.ref(ROOT+'/storico/'+key+'/'+k).remove());
+        }).catch(()=>{});
+      } else {
+        const st = local.get(ROOT+':storico') || {};
+        st[key] = [...(st[key]||[]), copia].slice(-10);
+        local.set(ROOT+':storico', st);
+      }
+    };
+    salvaCopia();
+  };
+
   const saveDoc = useCallback((id,obj)=>{
-    setDocumenti(p=>{ const n={...p}; if(obj) n[id]=obj; else delete n[id];
-      if(!HAS_FB) local.set(ROOT+':documenti', n); return n; });
+    setDocumenti(p=>{
+      const prima = p[id];
+      // se il documento si accorcia molto o viene eliminato, conservo com'era
+      if(prima){
+        const vecchio = (prima.corpo||'').length;
+        const nuovoLen = obj ? (obj.corpo||'').length : 0;
+        const passato = Date.now() - (ultimoBackup.current[id] || 0);
+        if(!obj || (vecchio > 200 && nuovoLen < vecchio * 0.7) || passato > 1800000){
+          archivia(prima);
+        }
+      }
+      const n={...p}; if(obj) n[id]=obj; else delete n[id];
+      if(!HAS_FB) local.set(ROOT+':documenti', n); return n;
+    });
     if(HAS_FB) fbDb.ref(ROOT+'/documenti/'+id).set(obj||null);
     setSalvato('Salvato'); setTimeout(()=>setSalvato(''), 1600);
   },[]);
@@ -3024,8 +3121,18 @@ function App(){
   const bodyTimer = useRef(null);
   const onBody = (html) => {
     clearTimeout(bodyTimer.current);
-    bodyTimer.current = setTimeout(()=>patchDoc({corpo:html}), 700);
+    const idAllora = doc && doc.id;             // il documento aperto in questo momento
+    bodyTimer.current = setTimeout(()=>{
+      const d = documenti[idAllora];
+      if(!d) return;                            // documento sparito nel frattempo
+      saveDoc(d.id, {...d, corpo:html, aggiornato: nowISO()});
+    }, 700);
   };
+
+  /* cambiando documento, salvo subito quello che era in attesa */
+  useEffect(()=>{
+    return () => { clearTimeout(bodyTimer.current); };
+  },[selDoc]);
 
   const creaDoc = (tipo,tpl,titolo) => {
     const sid = cartella || ((selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO') ? selSez : (sezList[0]&&sezList[0].id));
@@ -3192,6 +3299,7 @@ function App(){
             <button className="btn ghost sm" onClick={e=>{e.stopPropagation(); setMenuOpen(o=>!o);}} title="Altro">⋯</button>
             {menuOpen && (
               <div className="doc-menu-pop">
+                <button onClick={()=>{setMenuOpen(false); setModalStorico(true);}}>Versioni precedenti…</button>
                 <button onClick={()=>{setMenuOpen(false); setModalFmt(true);}}>Formato export…</button>
                 <button onClick={()=>{setMenuOpen(false); duplicaDoc();}}>Duplica</button>
                 <button className="danger" onClick={()=>{setMenuOpen(false); eliminaDoc();}}>Elimina</button>
@@ -3535,6 +3643,16 @@ function App(){
       )}
       {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
       {modalFmt && <FormatoModal fmt={fmt} onSave={salvaFmt} onClose={()=>setModalFmt(false)}/>}
+      {modalStorico && doc && (
+        <StoricoModal doc={doc} onClose={()=>setModalStorico(false)}
+          onRipristina={(v)=>{
+            saveDoc(doc.id, {...doc, corpo: v.corpo, titolo: v.titolo || doc.titolo,
+              agenda: v.agenda || doc.agenda, decisioni: v.decisioni || doc.decisioni,
+              azioni: v.azioni || doc.azioni, aggiornato: nowISO()});
+            setModalStorico(false);
+            setSelDoc(null); setTimeout(()=>setSelDoc(doc.id), 60);   // ricarico l'editor
+          }}/>
+      )}
     </div>
   );
 }
