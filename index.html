@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · appunti celle";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · unione verticale";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1428,26 +1428,47 @@ function RichText({value, onChange, placeholder, docKey}){
       alert('Servono almeno due celle. Clicca la prima, poi tieni Maiusc e clicca l\'ultima (oppure Ctrl per sceglierle una a una).');
       return;
     }
-    const riga = celle[0].parentNode;
-    if(!celle.every(c=>c.parentNode===riga)){ alert('Per ora unisco solo celle della stessa riga.'); return; }
-    const prima = celle[0];
-    prima.colSpan = celle.reduce((n,c)=>n + (c.colSpan||1), 0);
-    const testi = celle.map(c=>c.innerHTML.replace(/^<br>$/,'').trim()).filter(Boolean);
+    const tab = celle[0].closest('table');
+    if(!celle.every(c=>c.closest('table') === tab)){ alert('Le celle devono stare nella stessa tabella.'); return; }
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const pos = celle.map(c=>({
+      c,
+      r: righe.indexOf(c.parentNode),
+      k: Array.prototype.indexOf.call(c.parentNode.children, c)
+    }));
+    const r0 = Math.min(...pos.map(p=>p.r)), r1 = Math.max(...pos.map(p=>p.r));
+    const k0 = Math.min(...pos.map(p=>p.k)), k1 = Math.max(...pos.map(p=>p.k));
+    const attese = (r1-r0+1) * (k1-k0+1);
+    if(celle.length !== attese){ alert('Seleziona un blocco rettangolare di celle.'); return; }
+
+    const prima = pos.find(p=>p.r===r0 && p.k===k0).c;
+    const testi = pos.sort((a,b)=>a.r-b.r || a.k-b.k)
+      .map(p=>p.c.innerHTML.replace(/^<br>$/,'').trim()).filter(Boolean);
     prima.innerHTML = testi.length ? testi.join(' ') : '<br>';
-    celle.slice(1).forEach(c=>c.remove());
-    emit(); vaiA(prima);
+    prima.colSpan = k1 - k0 + 1;
+    prima.rowSpan = r1 - r0 + 1;
+    pos.forEach(p=>{ if(p.c !== prima) p.c.remove(); });
+    puliscoSel();
+    emit(true);
+    selezionaCella(prima);
   };
   const dividiCella = () => {
-    const c = cellaAttiva(); if(!c) return;
-    const n = c.colSpan || 1;
-    if(n < 2){ alert('Questa cella non è unita.'); return; }
-    c.colSpan = 1;
-    for(let i=1;i<n;i++){
-      const td = document.createElement(c.tagName === 'TH' ? 'th' : 'td');
-      td.innerHTML = '<br>';
-      c.parentNode.insertBefore(td, c.nextSibling);
+    const c = cellaCorrente() || cellaAttiva(); if(!c) return;
+    const nc = c.colSpan || 1, nr = c.rowSpan || 1;
+    if(nc < 2 && nr < 2){ alert('Questa cella non è unita.'); return; }
+    const tab = c.closest('table');
+    const righe = Array.from(tab.querySelectorAll('tr'));
+    const r0 = righe.indexOf(c.parentNode);
+    const k0 = Array.prototype.indexOf.call(c.parentNode.children, c);
+    const crea = () => { const td = document.createElement(c.tagName === 'TH' ? 'th' : 'td'); td.innerHTML='<br>'; return td; };
+    c.colSpan = 1; c.rowSpan = 1;
+    for(let i=1;i<nc;i++) c.parentNode.insertBefore(crea(), c.nextSibling);   // colonne nella stessa riga
+    for(let r=r0+1; r<r0+nr; r++){                                            // righe sotto
+      const tr = righe[r];
+      if(!tr) continue;
+      for(let i=0;i<nc;i++) tr.insertBefore(crea(), tr.children[k0] || null);
     }
-    emit(); vaiA(c);
+    emit(true); selezionaCella(c);
   };
 
   /* copia formato: prende l'aspetto di una cella e lo applica alle altre */
@@ -1537,8 +1558,12 @@ function RichText({value, onChange, placeholder, docKey}){
       return true;
     };
 
-    if(e.key === 'F2' || (e.key === 'Enter' && !e.shiftKey)){
-      e.preventDefault(); entraInModifica(cell); return true;
+    if(e.key === 'F2'){ e.preventDefault(); entraInModifica(cell); return true; }
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      const sotto = righe[ri+1] && righe[ri+1].children[ci];
+      if(sotto) selezionaCella(sotto);          // scende alla riga successiva
+      return true;
     }
     if(e.key === 'Escape'){ e.preventDefault(); puliscoSel(); setInTable(false); setTblBox(null); return true; }
 
@@ -2137,7 +2162,7 @@ function RichText({value, onChange, placeholder, docKey}){
             title={fmtPreso? 'Applica il formato copiato' : 'Copia il formato di questa cella'}>🖌</button>
           <span className="sep"></span>
           <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
-          <button onClick={unisciCelle} title="Unisci le celle selezionate">⇥⇤</button>
+          <button onClick={unisciCelle} title="Unisci le celle selezionate (anche su più righe)">⇥⇤</button>
           <button onClick={dividiCella} title="Dividi la cella unita">⇤⇥</button>
           <button onClick={aCapoInCella} title="A capo dentro la cella (o Maiusc+Invio)">⏎</button>
           <span className="sep"></span>
