@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "6 set · conteggio attività";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · sottosezioni";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -85,6 +85,12 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .nav-item:hover{background:#dfe5e0}
 .nav-item.on{background:var(--paper);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(23,33,29,.07)}
 .nav-item .chip{width:9px;height:9px;border-radius:2px;flex:none}
+.nav-item .chip.piccolo{width:7px;height:7px;border-radius:50%}
+.nav-item .tri{width:13px;flex:none;color:var(--muted);font-size:10px;line-height:1;text-align:left}
+.nav-item .tri:hover{color:var(--accent)}
+.nav-item .tri.vuoto{visibility:hidden}
+.nav-item.figlia{padding-left:26px;font-size:13.5px}
+.nav-item.figlia .name{color:var(--ink-soft)}
 .nav-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav-item .n{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .nav-item .edit{opacity:0;font-size:12px;color:var(--muted);padding:0 2px}
@@ -2273,11 +2279,14 @@ function ActionRow({a, onChange, onRemove, sub, mv, onEnter, autofocus}){
 }
 
 /* ═══════════ modale sezione ═══════════ */
-function SectionModal({sezione, onSave, onDelete, onClose, count}){
+function SectionModal({sezione, onSave, onDelete, onClose, count, radici, parentIniziale, figlieDi}){
   const [nome,setNome] = useState(sezione?sezione.nome:'');
   const [descrizione,setDescrizione] = useState(sezione?sezione.descrizione||'':'');
   const [colore,setColore] = useState(sezione?sezione.colore:COLORS[0]);
+  const [parentId,setParentId] = useState(sezione ? (sezione.parentId||'') : (parentIniziale||''));
   const nuovo = !sezione;
+  const haFiglie = sezione ? figlieDi(sezione.id).length > 0 : false;
+  const possibili = (radici||[]).filter(r=>!sezione || r.id !== sezione.id);
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
       <div className="modal">
@@ -2285,11 +2294,21 @@ function SectionModal({sezione, onSave, onDelete, onClose, count}){
         <div className="f">
           <label>Nome</label>
           <input autoFocus value={nome} onChange={e=>setNome(e.target.value)} placeholder="Es. Controlling, Budget 2027, Commerciale"
-            onKeyDown={e=>{if(e.key==='Enter'&&nome.trim()) onSave({nome:nome.trim(),descrizione,colore});}}/>
+            onKeyDown={e=>{if(e.key==='Enter'&&nome.trim()) onSave({nome:nome.trim(),descrizione,colore,parentId:parentId||null});}}/>
         </div>
         <div className="f">
           <label>Descrizione</label>
           <input value={descrizione} onChange={e=>setDescrizione(e.target.value)} placeholder="A cosa serve questa sezione"/>
+        </div>
+        <div className="f">
+          <label>Dentro</label>
+          <select value={parentId} onChange={e=>setParentId(e.target.value)} disabled={haFiglie}>
+            <option value="">— Sezione principale —</option>
+            {possibili.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}
+          </select>
+          {haFiglie && <div className="spazio-sub" style={{marginTop:4}}>
+            Questa sezione contiene delle sottosezioni, quindi resta principale.
+          </div>}
         </div>
         <div className="f">
           <label>Colore</label>
@@ -2301,9 +2320,13 @@ function SectionModal({sezione, onSave, onDelete, onClose, count}){
         </div>
         <div className="modal-foot">
           {!nuovo && <button className="btn danger" style={{marginRight:'auto'}}
-            onClick={()=>{ if(confirm(`Eliminare "${sezione.nome}"? I ${count} documenti dentro verranno eliminati.`)) onDelete(); }}>Elimina</button>}
+            onClick={()=>{
+              const extra = haFiglie ? ' Verranno eliminate anche le sottosezioni con i loro documenti.' : '';
+              if(confirm(`Eliminare "${sezione.nome}"? I ${count} documenti dentro verranno eliminati.${extra}`)) onDelete();
+            }}>Elimina</button>}
           <button className="btn" onClick={onClose}>Annulla</button>
-          <button className="btn primary" disabled={!nome.trim()} onClick={()=>onSave({nome:nome.trim(),descrizione,colore})}>Salva</button>
+          <button className="btn primary" disabled={!nome.trim()}
+            onClick={()=>onSave({nome:nome.trim(),descrizione,colore,parentId:parentId||null})}>Salva</button>
         </div>
       </div>
     </div>
@@ -2547,6 +2570,11 @@ function App(){
   },[pronto,sezioni,saveSez]);
 
   const sezList = useMemo(()=>Object.values(sezioni).sort((a,b)=>(a.ordine||0)-(b.ordine||0)),[sezioni]);
+  const radici = useMemo(()=>sezList.filter(s=>!s.parentId),[sezList]);
+  const figlieDi = useCallback((id)=>sezList.filter(s=>s.parentId===id),[sezList]);
+  const ramoDi = useCallback((id)=>[id, ...sezList.filter(s=>s.parentId===id).map(s=>s.id)],[sezList]);
+  const [chiuse,setChiuse] = useState(()=> local.get('quaderno:sezChiuse') || {});
+  const alterna = (id) => setChiuse(p=>{ const n={...p, [id]: !p[id]}; local.set('quaderno:sezChiuse', n); return n; });
   const docList = useMemo(()=>{
     let l = Object.values(documenti);
     if(q.trim()){
@@ -2556,7 +2584,8 @@ function App(){
         || (d.partecipanti||'').toLowerCase().includes(s)
         || (d.agenda||[]).some(p=>(p.titolo+' '+p.note).toLowerCase().includes(s)));
     } else if(selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO'){
-      l = l.filter(d=>d.sezioneId===selSez);
+      const ids = ramoDi(selSez);
+      l = l.filter(d=>ids.indexOf(d.sezioneId) >= 0);
     }
     return l.sort((a,b)=>{
       const da = a.data||a.creato.slice(0,10), db_ = b.data||b.creato.slice(0,10);
@@ -2567,6 +2596,7 @@ function App(){
   const countBySez = useMemo(()=>{
     const c={}; Object.values(documenti).forEach(d=>{c[d.sezioneId]=(c[d.sezioneId]||0)+1;}); return c;
   },[documenti]);
+  const countRamo = useCallback((id)=>ramoDi(id).reduce((n,x)=>n+(countBySez[x]||0),0),[ramoDi,countBySez]);
 
   const azioniAperte = useMemo(()=>{
     const out=[];
@@ -2793,7 +2823,10 @@ function App(){
             <div className="f">
               <label>Sezione</label>
               <select value={doc.sezioneId} onChange={e=>patchDoc({sezioneId:e.target.value})}>
-                {sezList.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+                {radici.map(r=>[
+                  <option key={r.id} value={r.id}>{r.nome}</option>,
+                  ...figlieDi(r.id).map(f=><option key={f.id} value={f.id}>{'\u00a0\u00a0\u00a0'}↳ {f.nome}</option>)
+                ])}
               </select>
             </div>
             <div className="f"><label>Data</label>
@@ -2999,15 +3032,35 @@ function App(){
           </div>
           <div className="nav-group">
             <div className="nav-label">Sezioni</div>
-            {sezList.map(s=>(
-              <button key={s.id} className={'nav-item'+(selSez===s.id?' on':'')}
-                onClick={()=>{setSelSez(s.id);setSelDoc(null);setQ('');}}>
-                <span className="chip" style={{background:s.colore}}></span>
-                <span className="name">{s.nome}</span>
-                <span className="n">{countBySez[s.id]||''}</span>
-                <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
-              </button>
-            ))}
+            {radici.map(s=>{
+              const figlie = figlieDi(s.id);
+              const chiusa = !!chiuse[s.id];
+              return (
+                <div key={s.id}>
+                  <button className={'nav-item'+(selSez===s.id?' on':'')}
+                    onClick={()=>{setSelSez(s.id);setSelDoc(null);setQ('');}}>
+                    {figlie.length > 0
+                      ? <span className="tri" onClick={e=>{e.stopPropagation(); alterna(s.id);}}>{chiusa?'▸':'▾'}</span>
+                      : <span className="tri vuoto"></span>}
+                    <span className="chip" style={{background:s.colore}}></span>
+                    <span className="name">{s.nome}</span>
+                    <span className="n">{countRamo(s.id)||''}</span>
+                    <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
+                    <span className="edit" title="Nuova sottosezione"
+                      onClick={e=>{e.stopPropagation(); setChiuse(p=>({...p,[s.id]:false})); setModalSez({sezione:null, parent:s.id});}}>+</span>
+                  </button>
+                  {!chiusa && figlie.map(f=>(
+                    <button key={f.id} className={'nav-item figlia'+(selSez===f.id?' on':'')}
+                      onClick={()=>{setSelSez(f.id);setSelDoc(null);setQ('');}}>
+                      <span className="chip piccolo" style={{background:f.colore}}></span>
+                      <span className="name">{f.nome}</span>
+                      <span className="n">{countBySez[f.id]||''}</span>
+                      <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
             <button className="nav-add" onClick={()=>setModalSez({sezione:null})}>+ Nuova sezione</button>
           </div>
         </div>
@@ -3065,7 +3118,10 @@ function App(){
       {modalSez && (
         <SectionModal
           sezione={modalSez.sezione}
-          count={modalSez.sezione? (countBySez[modalSez.sezione.id]||0) : 0}
+          radici={radici}
+          figlieDi={figlieDi}
+          parentIniziale={modalSez.parent}
+          count={modalSez.sezione? countRamo(modalSez.sezione.id) : 0}
           onClose={()=>setModalSez(null)}
           onSave={vals=>{
             if(modalSez.sezione){ saveSez(modalSez.sezione.id, {...modalSez.sezione, ...vals}); }
@@ -3074,9 +3130,11 @@ function App(){
           }}
           onDelete={()=>{
             const sid = modalSez.sezione.id;
-            Object.values(documenti).filter(d=>d.sezioneId===sid).forEach(d=>saveDoc(d.id,null));
-            saveSez(sid,null); setModalSez(null);
-            if(selSez===sid){ setSelSez(null); setSelDoc(null); }
+            const ids = ramoDi(sid);
+            Object.values(documenti).filter(d=>ids.indexOf(d.sezioneId)>=0).forEach(d=>saveDoc(d.id,null));
+            ids.forEach(x=>saveSez(x,null));
+            setModalSez(null);
+            if(ids.indexOf(selSez)>=0){ setSelSez(null); setSelDoc(null); }
           }}/>
       )}
       {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
