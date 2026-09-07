@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · navigazione tabella";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · cartelle ed elenchi";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -109,6 +109,22 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .search{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);
   background:var(--paper);margin-top:10px;outline:none}
 .search:focus{border-color:var(--accent)}
+.cartelle{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px 4px}
+.cart{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--paper);
+  border-radius:20px;padding:5px 11px;font-size:12.5px;color:var(--ink-soft);max-width:100%}
+.cart:hover{border-color:var(--ink-soft)}
+.cart.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.cart.on .q{color:#cfd8d3}
+.cart.drop{border-color:var(--accent);background:var(--accent-soft);color:#255840;
+  box-shadow:0 0 0 3px rgba(47,111,78,.18)}
+.cart .ic{font-size:11px}
+.cart .ic.evid{color:var(--accent)}
+.cart .q{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cart.nuova{border-style:dashed;color:var(--muted)}
+.cart.nuova:hover{border-color:var(--accent);color:var(--accent)}
+.card[draggable]{cursor:grab}
+.card:active{cursor:grabbing}
+.nav-item.drop{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
 .new-row{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
 .btn{border:1px solid var(--line);background:var(--paper);padding:6px 11px;border-radius:var(--radius);color:var(--ink-soft)}
 .btn:hover{border-color:var(--ink-soft);color:var(--ink)}
@@ -244,6 +260,10 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt h2{font-size:21px;margin:20px 0 6px}
 .rt h3{font-size:18px;margin:16px 0 4px}
 .rt ul,.rt ol{padding-left:22px;margin:8px 0}
+.rt ul ul{list-style-type:circle}
+.rt ul ul ul{list-style-type:square}
+.rt ol ol{list-style-type:lower-alpha}
+.rt ol ol ol{list-style-type:lower-roman}
 .rt li{margin:3px 0}
 .rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
 .rt a{color:var(--accent)}
@@ -582,6 +602,8 @@ img{max-width:100%;height:auto}
 figure{margin:9pt 0;text-align:center;page-break-inside:avoid}
 figcaption{font-family:${f.etich};font-size:${r(0.78)}pt;color:#7b8a83;margin-top:3pt}
 ol,ul{padding-left:16pt;margin:5pt 0}
+ul ul{list-style-type:circle} ul ul ul{list-style-type:square}
+ol ol{list-style-type:lower-alpha} ol ol ol{list-style-type:lower-roman}
 li{margin:3pt 0}
 .note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
@@ -618,6 +640,8 @@ function pdfDomCss(o){
 .pdfdoc th{background:#e9ede9;text-align:left;font-weight:bold}
 .pdfdoc td.macro-cell{background:#f2f5f2}
 .pdfdoc ol,.pdfdoc ul{padding-left:22px;margin:7px 0}
+.pdfdoc ul ul{list-style-type:circle} .pdfdoc ul ul ul{list-style-type:square}
+.pdfdoc ol ol{list-style-type:lower-alpha} .pdfdoc ol ol ol{list-style-type:lower-roman}
 .pdfdoc li{margin:5px 0}
 .pdfdoc .note{font-size:${r(0.92)}px;color:#41504a;margin:3px 0 7px}
 .pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:9px 0;padding-left:13px;color:#41504a;font-style:italic}
@@ -832,6 +856,19 @@ function scriviNumero(n, dec, sep, perc){
   return perc ? out + '%' : out;
 }
 
+const SEGNI_ELENCO = [
+  {n:'Pallino pieno',  v:'disc',    e:'•'},
+  {n:'Cerchio vuoto',  v:'circle',  e:'◦'},
+  {n:'Quadratino',     v:'square',  e:'▪'},
+  {n:'Trattino',       v:'"–  "',   e:'–'},
+  {n:'Freccia',        v:'"→  "',   e:'→'}
+];
+const SEGNI_NUM = [
+  {n:'1. 2. 3.',   v:'decimal',     e:'1.'},
+  {n:'a. b. c.',   v:'lower-alpha', e:'a.'},
+  {n:'i. ii. iii.',v:'lower-roman', e:'i.'},
+  {n:'A. B. C.',   v:'upper-alpha', e:'A.'}
+];
 const INTERLINEE = [
   {n:'Compatta', v:'1.25'}, {n:'Normale', v:'1.5'},
   {n:'Ampia',    v:'1.8'},  {n:'Doppia',  v:'2.2'}
@@ -1235,6 +1272,21 @@ function RichText({value, onChange, placeholder, docKey}){
     setPal(null);
   };
 
+  /* cambia il simbolo dell'elenco in cui si trova il cursore */
+  const listaCorrente = () => {
+    const sel = window.getSelection();
+    let n = sel && sel.anchorNode;
+    if(n && n.nodeType === 3) n = n.parentElement;
+    const li = n && n.closest && n.closest('li');
+    return (li && ref.current.contains(li)) ? li.parentElement : null;
+  };
+  const setSegnoElenco = (v) => {
+    const lista = listaCorrente();
+    if(!lista){ alert('Metti prima il cursore in un elenco.'); setPal(null); return; }
+    if(v) lista.style.listStyleType = v; else lista.style.removeProperty('list-style-type');
+    emit(true); setPal(null);
+  };
+
   const setInterlinea = (v) => {
     if(applicaStileCelle({lineHeight: v || ''})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
@@ -1242,6 +1294,21 @@ function RichText({value, onChange, placeholder, docKey}){
     if(!bl.length){ setPal(null); return; }
     bl.forEach(el=>{ if(v) el.style.lineHeight = v; else el.style.removeProperty('line-height'); });
     emit(); setPal(null); ref.current.focus();
+  };
+
+  /* Tab dentro un elenco: rientra di un livello, Maiusc+Tab torna indietro */
+  const rientroElenco = (e) => {
+    if(e.key !== 'Tab') return false;
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return false;
+    let n = sel.anchorNode;
+    if(n && n.nodeType === 3) n = n.parentElement;
+    const li = n && n.closest && n.closest('li');
+    if(!li || !ref.current.contains(li)) return false;
+    e.preventDefault();
+    document.execCommand(e.shiftKey ? 'outdent' : 'indent');
+    emit(true);
+    return true;
   };
 
   /* "- " oppure "1. " a inizio riga diventano un elenco */
@@ -1253,8 +1320,8 @@ function RichText({value, onChange, placeholder, docKey}){
     if(!n || n.nodeType !== 3) return false;
     if(n.parentElement && n.parentElement.closest('li')) return false;   // già in un elenco
     const prima = n.textContent.slice(0, sel.anchorOffset);
-    const puntato = /^\s*[-*•]$/.test(prima);
-    const numerato = /^\s*(1[.)]|1)$/.test(prima);
+    const puntato = /^\s*[-*•·–]$/.test(prima);
+    const numerato = /^\s*\d+[.)]?$/.test(prima);
     if(!puntato && !numerato) return false;
     e.preventDefault();
     n.textContent = n.textContent.slice(sel.anchorOffset);   // via il segno digitato
@@ -2159,7 +2226,27 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<h2>')} title="Titolo">T1</button>
         <button onClick={()=>cmd('formatBlock','<h3>')} title="Sottotitolo">T2</button>
         <button onClick={()=>cmd('formatBlock','<p>')} title="Testo normale">¶</button>
-        <button onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
+        <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <button className="split-main" onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
+          <button className="split-caret" onClick={()=>setPal(pal==='segno'?null:'segno')} title="Scegli il simbolo">▾</button>
+          {pal==='segno' && (
+            <div className="pal" onMouseDown={e=>e.preventDefault()}>
+              <div className="pal-tit">Elenco puntato</div>
+              {SEGNI_ELENCO.map(x=>(
+                <button key={x.v} className="pal-riga" onClick={()=>setSegnoElenco(x.v)}>
+                  <span className="glifo">{x.e}</span> {x.n}
+                </button>
+              ))}
+              <div className="pal-tit">Elenco numerato</div>
+              {SEGNI_NUM.map(x=>(
+                <button key={x.v} className="pal-riga" onClick={()=>setSegnoElenco(x.v)}>
+                  <span className="glifo">{x.e}</span> {x.n}
+                </button>
+              ))}
+              <button className="pal-clear" onClick={()=>setSegnoElenco(null)}>Simbolo predefinito</button>
+            </div>
+          )}
+        </span>
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
         <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo. Dentro una tabella, la raggruppa con la riga sopra">⊟</button>
@@ -2399,7 +2486,9 @@ function RichText({value, onChange, placeholder, docKey}){
             e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return;
           }
           if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); ripeti(); return; }
-          if(modo === 'sel') return;   // già gestito dall'ascoltatore della pagina
+          // la modalità celle vale solo dentro una tabella: fuori, le scorciatoie del testo restano attive
+          if(modo === 'sel' && attivaRef.current && attivaRef.current.isConnected) return;
+          if(rientroElenco(e)) return;
           if(navigaTabella(e)) return;
           scorciatoiaElenco(e);
         }}
@@ -2860,6 +2949,8 @@ function App(){
   const figlieDi = useCallback((id)=>sezList.filter(s=>s.parentId===id),[sezList]);
   const ramoDi = useCallback((id)=>[id, ...sezList.filter(s=>s.parentId===id).map(s=>s.id)],[sezList]);
   const [chiuse,setChiuse] = useState(()=> local.get('quaderno:sezChiuse') || {});
+  const [cartella,setCartella] = useState(null);   // sottosezione aperta nell'elenco
+  const [dragSu,setDragSu] = useState(null);       // dove sto trascinando
   const alterna = (id) => setChiuse(p=>{ const n={...p, [id]: !p[id]}; local.set('quaderno:sezChiuse', n); return n; });
   const docList = useMemo(()=>{
     let l = Object.values(documenti);
@@ -2869,6 +2960,8 @@ function App(){
         || stripHtml(d.corpo).toLowerCase().includes(s)
         || (d.partecipanti||'').toLowerCase().includes(s)
         || (d.agenda||[]).some(p=>(p.titolo+' '+p.note).toLowerCase().includes(s)));
+    } else if(cartella){
+      l = l.filter(d=>d.sezioneId === cartella);
     } else if(selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO'){
       const ids = ramoDi(selSez);
       l = l.filter(d=>ids.indexOf(d.sezioneId) >= 0);
@@ -2877,7 +2970,7 @@ function App(){
       const da = a.data||a.creato.slice(0,10), db_ = b.data||b.creato.slice(0,10);
       return db_.localeCompare(da);
     });
-  },[documenti,selSez,q]);
+  },[documenti,selSez,q,cartella,ramoDi]);
 
   const countBySez = useMemo(()=>{
     const c={}; Object.values(documenti).forEach(d=>{c[d.sezioneId]=(c[d.sezioneId]||0)+1;}); return c;
@@ -2913,6 +3006,12 @@ function App(){
     return {dettagli, totale, immagini, testo: Math.max(0, totale-immagini), n: docs.length};
   },[documenti,sezioni]);
 
+  const spostaDoc = (docId, destId) => {
+    const d = documenti[docId];
+    if(!d || !destId || d.sezioneId === destId) return;
+    saveDoc(d.id, {...d, sezioneId: destId, aggiornato: nowISO()});
+  };
+
   const doc = selDoc ? documenti[selDoc] : null;
   const sezCorrente = doc ? sezioni[doc.sezioneId] : (selSez!=='ATTIVITA'? sezioni[selSez] : null);
 
@@ -2929,7 +3028,7 @@ function App(){
   };
 
   const creaDoc = (tipo,tpl,titolo) => {
-    const sid = (selSez && selSez!=='ATTIVITA') ? selSez : (sezList[0]&&sezList[0].id);
+    const sid = cartella || ((selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO') ? selSez : (sezList[0]&&sezList[0].id));
     if(!sid){ alert('Crea prima una sezione.'); return; }
     const d = emptyDoc(sid, tipo, tpl);
     d.titolo = titolo || '';
@@ -3318,35 +3417,18 @@ function App(){
           </div>
           <div className="nav-group">
             <div className="nav-label">Sezioni</div>
-            {radici.map(s=>{
-              const figlie = figlieDi(s.id);
-              const chiusa = !!chiuse[s.id];
-              return (
-                <div key={s.id}>
-                  <button className={'nav-item'+(selSez===s.id?' on':'')}
-                    onClick={()=>{setSelSez(s.id);setSelDoc(null);setQ('');}}>
-                    {figlie.length > 0
-                      ? <span className="tri" onClick={e=>{e.stopPropagation(); alterna(s.id);}}>{chiusa?'▸':'▾'}</span>
-                      : <span className="tri vuoto"></span>}
-                    <span className="chip" style={{background:s.colore}}></span>
-                    <span className="name">{s.nome}</span>
-                    <span className="n">{countRamo(s.id)||''}</span>
-                    <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
-                    <span className="edit" title="Nuova sottosezione"
-                      onClick={e=>{e.stopPropagation(); setChiuse(p=>({...p,[s.id]:false})); setModalSez({sezione:null, parent:s.id});}}>+</span>
-                  </button>
-                  {!chiusa && figlie.map(f=>(
-                    <button key={f.id} className={'nav-item figlia'+(selSez===f.id?' on':'')}
-                      onClick={()=>{setSelSez(f.id);setSelDoc(null);setQ('');}}>
-                      <span className="chip piccolo" style={{background:f.colore}}></span>
-                      <span className="name">{f.nome}</span>
-                      <span className="n">{countBySez[f.id]||''}</span>
-                      <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
+            {radici.map(s=>(
+              <button key={s.id} className={'nav-item'+(selSez===s.id?' on':'')+(dragSu===s.id?' drop':'')}
+                onClick={()=>{setSelSez(s.id);setSelDoc(null);setQ('');setCartella(null);}}
+                onDragOver={e=>{e.preventDefault(); setDragSu(s.id);}}
+                onDragLeave={()=>setDragSu(null)}
+                onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), s.id); setDragSu(null);}}>
+                <span className="chip" style={{background:s.colore}}></span>
+                <span className="name">{s.nome}</span>
+                <span className="n">{countRamo(s.id)||''}</span>
+                <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
+              </button>
+            ))}
             <button className="nav-add" onClick={()=>setModalSez({sezione:null})}>+ Nuova sezione</button>
           </div>
         </div>
@@ -3360,13 +3442,38 @@ function App(){
       {/* colonna elenco */}
       <div className={'col-list'+mobileHide('list')}>
         <div className="list-head">
-          <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : selSez==='SPAZIO'? 'Spazio' : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
+          <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : selSez==='SPAZIO'? 'Spazio'
+             : (cartella && sezioni[cartella] ? sezioni[cartella].nome : (sezCorrente? sezCorrente.nome : 'Documenti'))}</h2>
           <p>{q.trim()? `${docList.length} documenti trovati`
              : selSez==='SPAZIO' ? 'Occupazione del database'
              : selSez==='ATTIVITA' ? 'Vista trasversale'
              : (sezCorrente&&sezCorrente.descrizione) || `${docList.length} documenti`}</p>
           <input className="search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca in tutto il quaderno…"/>
         </div>
+        {selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && !q.trim() && (
+          <div className="cartelle">
+            <button className={'cart'+(!cartella?' on':'')}
+              onClick={()=>setCartella(null)}
+              onDragOver={e=>{e.preventDefault(); setDragSu('RADICE');}}
+              onDragLeave={()=>setDragSu(null)}
+              onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), selSez); setDragSu(null);}}>
+              <span className={'ic'+(dragSu==='RADICE'?' evid':'')}>▤</span> Tutti
+            </button>
+            {figlieDi(selSez).map(f=>(
+              <button key={f.id} className={'cart'+(cartella===f.id?' on':'')+(dragSu===f.id?' drop':'')}
+                onClick={()=>setCartella(f.id)}
+                onDoubleClick={()=>setModalSez({sezione:f})}
+                onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
+                onDragLeave={()=>setDragSu(null)}
+                onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), f.id); setDragSu(null);}}>
+                <span className="ic" style={{color:f.colore}}>▣</span> {f.nome}
+                <span className="q">{countBySez[f.id]||''}</span>
+              </button>
+            ))}
+            <button className="cart nuova" title="Nuova cartella dentro questa sezione"
+              onClick={()=>setModalSez({sezione:null, parent:selSez})}>+ cartella</button>
+          </div>
+        )}
         <div className="new-row">
           <button className="btn primary sm" style={{flex:1}} onClick={()=>setModalNew(true)}>+ Nuovo documento</button>
           <button className="btn sm" onClick={()=>esportaSezione('word')} title="Esporta l'elenco in Word">Word</button>
@@ -3384,6 +3491,9 @@ function App(){
             const aperte = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
             return (
               <button key={d.id} className={'card'+(selDoc===d.id?' on':'')}
+                draggable
+                onDragStart={e=>{ e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed='move'; }}
+                onDragEnd={()=>setDragSu(null)}
                 onClick={()=>{setSelDoc(d.id); setMobileView('doc');}}>
                 <div className="t">{d.titolo||'Senza titolo'}</div>
                 <div className="m">
