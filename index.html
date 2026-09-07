@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · celle unite";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "7 set · righe complete";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1459,7 +1459,8 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const nuovaRigaIn = (tab, modello) => {
     const tr = document.createElement('tr');
-    for(let i=0;i<modello.children.length;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; tr.appendChild(td); }
+    const quante = grigliaDi(tab).nCol || modello.children.length;   // le celle unite valgono più colonne
+    for(let i=0;i<quante;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; tr.appendChild(td); }
     let corpo = tab.querySelector('tbody');
     if(!corpo){ corpo = document.createElement('tbody'); tab.appendChild(corpo); }
     corpo.appendChild(tr);
@@ -1802,7 +1803,8 @@ function RichText({value, onChange, placeholder, docKey}){
     const cell = cellaAttiva(); if(!cell) return;
     const tr = cell.parentNode, tbody = tr.parentNode;
     const nr = document.createElement('tr');
-    for(let i=0;i<tr.children.length;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; nr.appendChild(td); }
+    const quante = grigliaDi(cell.closest('table')).nCol || tr.children.length;
+    for(let i=0;i<quante;i++){ const td=document.createElement('td'); td.innerHTML='<br>'; nr.appendChild(td); }
     if(tbody.tagName==='THEAD'){
       const table = tbody.parentNode;
       let body = table.querySelector('tbody');
@@ -2000,6 +2002,27 @@ function RichText({value, onChange, placeholder, docKey}){
     });
     emit(); setTimeout(checkCtx, 0);
   };
+  /* aggiunge le celle mancanti alle righe più corte */
+  const pareggiaRighe = () => {
+    const c = cellaCorrente() || cellaAttiva(); if(!c) return;
+    const tab = c.closest('table');
+    const gr = grigliaDi(tab);
+    let aggiunte = 0;
+    Array.from(tab.querySelectorAll('tr')).forEach((tr, r)=>{
+      let occupate = 0;
+      for(let k=0;k<gr.nCol;k++) if(cellaIn(gr, r, k)) occupate++;
+      for(let k=occupate; k<gr.nCol; k++){
+        const td = document.createElement(tr.querySelector('th') && !tr.querySelector('td') ? 'th' : 'td');
+        td.innerHTML = '<br>';
+        tr.appendChild(td);
+        aggiunte++;
+      }
+    });
+    if(aggiunte){ emit(true); alert('Ho aggiunto ' + aggiunte + (aggiunte===1?' cella mancante.':' celle mancanti.')); }
+    else alert('Le righe sono già tutte complete.');
+    setTimeout(checkCtx, 0);
+  };
+
   const larghezzaAuto = () => {
     const c = cellaAttiva();
     if(!c) return;
@@ -2162,6 +2185,7 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={()=>larghezzaColonna(-30)} title="Stringi la colonna">→←</button>
           <button onClick={()=>larghezzaColonna(30)} title="Allarga la colonna">←→</button>
           <button onClick={larghezzaAuto} title="Larghezza automatica">auto</button>
+          <button onClick={pareggiaRighe} title="Completa le righe a cui mancano delle celle">⊡</button>
           <span className="sep"></span>
           <span className="pal-wrap">
             <button className="split-main" onClick={()=>{ ricorda(ultimoCella); coloraCelle(ultimoCella); }}
