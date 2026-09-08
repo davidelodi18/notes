@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · tabelle a pagina";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · qualità PDF";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -610,7 +610,8 @@ const FONTS = {
   sans:  { corpo:"Arial,Helvetica,sans-serif",      etich:"Arial,Helvetica,sans-serif", nome:'Arial (bastone)' }
 };
 const MARGINI = { stretti:[12,12], normali:[18,16], ampi:[24,22] };
-const FORMATO_DEF = { font:'serif', size:11, margini:'normali' };
+const FORMATO_DEF = { font:'serif', size:11, margini:'normali', pdf:'alta' };
+// 'alta' = immagine ad alta risoluzione · 'nitido' = testo vero, passa dalla finestra di stampa
 
 function printCss(o){
   const f = FONTS[o.font] || FONTS.serif;
@@ -740,6 +741,10 @@ function canvasVuoto(c){
 
 async function exportPdf(title, inner, filename, fmt){
   const o = fmt || FORMATO_DEF;
+  if(o.pdf === 'nitido'){          // testo vero: lo produce il browser, con il suo pannello di stampa
+    printFallback(title, inner, o);
+    return true;
+  }
   const nome = ((filename||title||'documento').replace(/[^\w\sàèéìòùÀÈÉÌÒÙ\-]/gi,'').trim() || 'documento') + '.pdf';
   try{
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
@@ -776,8 +781,8 @@ async function exportPdf(title, inner, filename, fmt){
     const opt = {
       margin: [mm[0], mm[1], mm[0]+2, mm[1]],
       filename: nome,
-      image: { type:'jpeg', quality:0.96 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor:'#ffffff', logging:false, scrollX:0, scrollY:0 },
+      image: { type:'png' },                       // niente compressione: bordi e testo restano puliti
+      html2canvas: { scale: 3, useCORS: true, backgroundColor:'#ffffff', logging:false, scrollX:0, scrollY:0 },
       jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
       pagebreak: { mode:['css','legacy'], avoid:['tr','figure','li','h2','h3'] }
     };
@@ -2910,6 +2915,7 @@ function FormatoModal({fmt, onSave, onClose}){
   const [f,setF] = useState(fmt.font);
   const [sz,setSz] = useState(fmt.size);
   const [mg,setMg] = useState(fmt.margini);
+  const [qp,setQp] = useState(fmt.pdf || 'alta');
   const ff = FONTS[f].corpo;
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
@@ -2941,6 +2947,19 @@ function FormatoModal({fmt, onSave, onClose}){
           </select>
         </div>
 
+        <div className="f">
+          <label>Come generare il PDF</label>
+          <select value={qp} onChange={e=>setQp(e.target.value)}>
+            <option value="alta">Diretto — si scarica subito, il testo è un'immagine</option>
+            <option value="nitido">Nitido — testo vero e selezionabile, passa dalla stampa</option>
+          </select>
+          <div className="spazio-sub" style={{marginTop:4}}>
+            {qp === 'nitido'
+              ? 'Si apre il pannello di stampa: scegli "Salva come PDF". Qualità perfetta a ogni ingrandimento.'
+              : 'Nessun passaggio in più, ma ingrandendo molto o stampando si nota la grana.'}
+          </div>
+        </div>
+
         <div className="anteprima" style={{fontFamily:ff}}>
           <div style={{fontSize:(sz*1.85)+'pt',lineHeight:1.2,marginBottom:6}}>Riunione di esempio</div>
           <div style={{fontSize:(sz*1.22)+'pt',borderBottom:'1px solid #d5dcd7',paddingBottom:3,margin:'10px 0 5px'}}>Ordine del giorno</div>
@@ -2955,11 +2974,11 @@ function FormatoModal({fmt, onSave, onClose}){
 
         <div className="modal-foot">
           <button className="btn" style={{marginRight:'auto'}}
-            onClick={()=>{ setF(FORMATO_DEF.font); setSz(FORMATO_DEF.size); setMg(FORMATO_DEF.margini); }}>
+            onClick={()=>{ setF(FORMATO_DEF.font); setSz(FORMATO_DEF.size); setMg(FORMATO_DEF.margini); setQp(FORMATO_DEF.pdf); }}>
             Ripristina
           </button>
           <button className="btn" onClick={onClose}>Annulla</button>
-          <button className="btn primary" onClick={()=>onSave({font:f,size:sz,margini:mg})}>Salva</button>
+          <button className="btn primary" onClick={()=>onSave({font:f,size:sz,margini:mg,pdf:qp})}>Salva</button>
         </div>
       </div>
     </div>
