@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · cartelle e sposta";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · gruppi solo a schermo";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -301,18 +301,18 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt li{margin:3px 0}
 .rt blockquote{border-left:2px solid var(--accent);margin:12px 0;padding-left:14px;color:var(--ink-soft);font-style:italic}
 .rt a{color:var(--accent)}
-.grp{margin:22px 0}
-.grp-t{font-weight:600;position:relative;padding-left:22px;margin-bottom:12px}
-.grp-t::before{content:'▾';position:absolute;left:0;top:1px;color:var(--muted);font-size:13px;cursor:pointer;
+.rt .grp{margin:22px 0}
+.rt .grp-t{font-weight:600;position:relative;padding-left:22px;margin-bottom:12px}
+.rt .grp-t::before{content:'▾';position:absolute;left:0;top:1px;color:var(--muted);font-size:13px;cursor:pointer;
   width:20px;font-family:var(--sans)}
-.grp-t:hover::before{color:var(--accent)}
-.grp.chiuso > .grp-t{margin-bottom:4px}
-.grp.chiuso > .grp-t::before{content:'▸'}
-.grp.chiuso > .grp-c{display:none}
-.grp.chiuso > .grp-t::after{content:'…';color:var(--muted);margin-left:8px;font-weight:400}
-.grp-c{border-left:2px solid var(--line-soft);padding-left:14px;margin-left:7px}
-.grp-c > *:first-child{margin-top:0}
-.grp-c table{margin-top:0}
+.rt .grp-t:hover::before{color:var(--accent)}
+.rt .grp.chiuso > .grp-t{margin-bottom:4px}
+.rt .grp.chiuso > .grp-t::before{content:'▸'}
+.rt .grp.chiuso > .grp-c{display:none}
+.rt .grp.chiuso > .grp-t::after{content:'…';color:var(--muted);margin-left:8px;font-weight:400}
+.rt .grp-c{border-left:2px solid var(--line-soft);padding-left:14px;margin-left:7px}
+.rt .grp-c > *:first-child{margin-top:0}
+.rt .grp-c table{margin-top:0}
 .rt table{border-collapse:collapse;width:100%;margin:14px 0;font-family:var(--sans);font-size:13.5px}
 .rt table td,.rt table th{border:1px solid var(--line);padding:6px 9px;vertical-align:top;min-width:40px}
 .rt table th{background:var(--shell);text-align:left;font-weight:600}
@@ -3775,9 +3775,6 @@ function App(){
                   <span className="ed" onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
                 </button>
               ))}
-              <button className="riga-cart nuova" onClick={()=>setModalSez({sezione:null, parent:selSez})}>
-                <span className="ic">＋</span><span className="t">Nuova cartella</span>
-              </button>
             </>
           )}
           {docList.length===0 && !figlieDi(selSez||'').length && (
@@ -3798,8 +3795,9 @@ function App(){
                   e.dataTransfer.effectAllowed='move';
                 }}
                 onDragEnd={()=>setDragSu(null)}
-                onClick={()=>{
-                  if(selMulti){
+                onClick={e=>{
+                  if(selMulti || e.ctrlKey || e.metaKey){
+                    if(!selMulti) setSelMulti(true);
                     setScelti(p=> p.indexOf(d.id)>=0 ? p.filter(x=>x!==d.id) : [...p, d.id]);
                     return;
                   }
@@ -3818,6 +3816,11 @@ function App(){
               </button>
             );
           })}
+          {!cartella && !q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && (
+            <button className="riga-cart nuova" onClick={()=>setModalSez({sezione:null, parent:selSez})}>
+              <span className="ic">＋</span><span className="t">Nuova cartella</span>
+            </button>
+          )}
         </div>
       </div>
 
