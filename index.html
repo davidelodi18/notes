@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · gruppi solo a schermo";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · tabelle a pagina";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -629,8 +629,9 @@ table.grid{border-collapse:collapse;width:100%;margin:7pt 0;font-size:${r(0.92)}
 table.grid th{background:#e9ede9;text-align:left;padding:5pt 7pt;border:1px solid #d5dcd7;font-family:${f.etich};font-size:${r(0.83)}pt}
 table.grid td{padding:5pt 7pt;border:1px solid #d5dcd7;vertical-align:top}
 table.grid td.macro-cell{background:#f2f5f2}
-table{border-collapse:collapse;max-width:100%}
-td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:${f.etich};font-size:${r(0.88)}pt}
+table{border-collapse:collapse;width:100%;max-width:100%;table-layout:fixed}
+td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:${f.etich};font-size:${r(0.88)}pt;
+  word-wrap:break-word}
 th{background:#e9ede9;text-align:left;font-weight:bold}
 img{max-width:100%;height:auto}
 figure{margin:9pt 0;text-align:center;page-break-inside:avoid}
@@ -669,8 +670,18 @@ function pdfDomCss(o){
 .pdfdoc table.meta{border-collapse:collapse;margin:10px 0 15px;width:100%}
 .pdfdoc table.meta td{padding:4px 10px 4px 0;vertical-align:top;font-size:${r(0.92)}px;border:0}
 .pdfdoc table.meta td.k{color:#7b8a83;width:145px;font-family:${f.etich};font-size:${r(0.83)}px}
-.pdfdoc table{border-collapse:collapse;width:100%;margin:9px 0;font-family:${f.etich};font-size:${r(0.9)}px}
-.pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:6px 9px;vertical-align:top}
+.pdfdoc table{border-collapse:collapse;width:100%!important;max-width:100%;table-layout:fixed;
+  margin:9px 0;font-family:${f.etich};font-size:${r(0.9)}px;page-break-inside:auto}
+.pdfdoc td,.pdfdoc th{border:1px solid #d5dcd7;padding:6px 9px;vertical-align:top;
+  width:auto!important;overflow-wrap:break-word;word-break:normal;hyphens:auto}
+.pdfdoc tr{page-break-inside:avoid}
+/* più colonne ci sono, più il testo si stringe per starci */
+.pdfdoc table.col6{font-size:${r(0.8)}px}
+.pdfdoc table.col6 td,.pdfdoc table.col6 th{padding:4px 6px}
+.pdfdoc table.col8{font-size:${r(0.7)}px}
+.pdfdoc table.col8 td,.pdfdoc table.col8 th{padding:3px 4px}
+.pdfdoc table.col10{font-size:${r(0.62)}px}
+.pdfdoc table.col10 td,.pdfdoc table.col10 th{padding:2px 3px}
 .pdfdoc th{background:#e9ede9;text-align:left;font-weight:bold}
 .pdfdoc td.macro-cell{background:#f2f5f2}
 .pdfdoc ol,.pdfdoc ul{padding-left:22px;margin:7px 0}
@@ -738,7 +749,29 @@ async function exportPdf(title, inner, filename, fmt){
     if(!st){ st = document.createElement('style'); st.id = 'pdf-style'; document.head.appendChild(st); }
     st.textContent = pdfDomCss(o);
 
-    const wrapped = `<div class="pdfdoc">${inner}</div>`;
+    // conto le colonne di ogni tabella: quelle larghe vanno rimpicciolite per stare nella pagina
+    let contenuto = inner;
+    try{
+      const box = document.createElement('div');
+      box.innerHTML = inner;
+      box.querySelectorAll('table').forEach(t=>{
+        let max = 0;
+        t.querySelectorAll('tr').forEach(tr=>{
+          let n = 0;
+          Array.from(tr.children).forEach(td=>{ n += (td.colSpan || 1); });
+          if(n > max) max = n;
+        });
+        t.removeAttribute('width');
+        t.style.removeProperty('width');
+        t.querySelectorAll('td,th').forEach(td=>td.style.removeProperty('width'));
+        if(max >= 10) t.classList.add('col10');
+        else if(max >= 8) t.classList.add('col8');
+        else if(max >= 6) t.classList.add('col6');
+      });
+      contenuto = box.innerHTML;
+    }catch(err){}
+
+    const wrapped = `<div class="pdfdoc">${contenuto}</div>`;
     const mm = MARGINI[o.margini] || MARGINI.normali;
     const opt = {
       margin: [mm[0], mm[1], mm[0]+2, mm[1]],
