@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · gruppi invisibili";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · cartelle e sposta";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -109,6 +109,38 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .search{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);
   background:var(--paper);margin-top:10px;outline:none}
 .search:focus{border-color:var(--accent)}
+/* cartelle come righe dell'elenco */
+.riga-cart{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:11px;border:0;
+  background:transparent;border-radius:var(--radius);margin-bottom:2px;color:var(--ink)}
+.riga-cart:hover{background:#eaefeb}
+.riga-cart .ic{font-size:13px;flex:none;color:var(--muted)}
+.riga-cart .t{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.riga-cart .q{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.riga-cart .ed{opacity:0;color:var(--muted);font-size:12px;padding:0 3px}
+.riga-cart:hover .ed{opacity:1}
+.riga-cart.drop{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.riga-cart.indietro{color:var(--muted);font-size:13px;padding:8px 11px}
+.riga-cart.nuova{color:var(--muted);border:1px dashed var(--line)}
+.riga-cart.nuova:hover{border-color:var(--accent);color:var(--accent)}
+.card{position:relative}
+.card.scelto{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.card .segno{position:absolute;left:-2px;top:9px;width:17px;height:17px;border-radius:4px;border:1px solid var(--line);
+  background:#fff;font-size:11px;line-height:15px;text-align:center;color:transparent}
+.card.scelto .segno{background:var(--accent);border-color:var(--accent);color:#fff}
+.card .segno ~ .t{margin-left:20px}
+.card .card-menu{position:absolute;right:6px;top:8px;color:#c3ccc7;padding:2px 6px;border-radius:4px}
+.card .card-menu:hover{background:var(--line-soft);color:var(--ink)}
+.barra-sel{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--accent-soft);
+  color:#255840;font-size:12.5px}
+.barra-sel span{flex:1}
+.dest{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;background:transparent;
+  padding:10px 11px;border-radius:var(--radius);color:var(--ink)}
+.dest:hover:not(:disabled){background:var(--line-soft)}
+.dest:disabled{opacity:.5}
+.dest.figlia{padding-left:30px;font-size:13.5px;color:var(--ink-soft)}
+.dest .chip{width:9px;height:9px;border-radius:2px;flex:none}
+.dest .ic{font-size:12px}
+.qui-t{font-size:11px;color:var(--muted);margin-left:auto}
 .cartelle{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px 4px}
 .cart{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--paper);
   border-radius:20px;padding:5px 11px;font-size:12.5px;color:var(--ink-soft);max-width:100%}
@@ -2954,6 +2986,38 @@ function StoricoModal({doc, onRipristina, onClose}){
   );
 }
 
+/* ═══════════ sposta i documenti ═══════════ */
+function SpostaModal({quanti, radici, figlieDi, correnteId, onSposta, onClose}){
+  return (
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
+      <div className="modal" style={{maxWidth:440}}>
+        <h3>{quanti === 1 ? 'Sposta il documento' : `Sposta ${quanti} documenti`}</h3>
+        <div style={{maxHeight:'50vh', overflowY:'auto', marginTop:6}}>
+          {radici.map(r=>(
+            <div key={r.id}>
+              <button className={'dest'+(r.id===correnteId?' qui':'')} disabled={r.id===correnteId}
+                onClick={()=>onSposta(r.id)}>
+                <span className="chip" style={{background:r.colore}}></span>
+                {r.nome}
+                {r.id===correnteId && <span className="qui-t">qui</span>}
+              </button>
+              {figlieDi(r.id).map(f=>(
+                <button key={f.id} className={'dest figlia'+(f.id===correnteId?' qui':'')} disabled={f.id===correnteId}
+                  onClick={()=>onSposta(f.id)}>
+                  <span className="ic" style={{color:f.colore}}>▣</span>
+                  {f.nome}
+                  {f.id===correnteId && <span className="qui-t">qui</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Annulla</button></div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════ login ═══════════ */
 function Login(){
   const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
@@ -3138,6 +3202,9 @@ function App(){
   const [chiuse,setChiuse] = useState(()=> local.get('quaderno:sezChiuse') || {});
   const [cartella,setCartella] = useState(null);   // sottosezione aperta nell'elenco
   const [dragSu,setDragSu] = useState(null);       // dove sto trascinando
+  const [selMulti,setSelMulti] = useState(false);  // modalità "scegli più documenti"
+  const [scelti,setScelti] = useState([]);         // id dei documenti scelti
+  const [modalSposta,setModalSposta] = useState(null);
   const alterna = (id) => setChiuse(p=>{ const n={...p, [id]: !p[id]}; local.set('quaderno:sezChiuse', n); return n; });
   const docList = useMemo(()=>{
     let l = Object.values(documenti);
@@ -3150,8 +3217,7 @@ function App(){
     } else if(cartella){
       l = l.filter(d=>d.sezioneId === cartella);
     } else if(selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO'){
-      const ids = ramoDi(selSez);
-      l = l.filter(d=>ids.indexOf(d.sezioneId) >= 0);
+      l = l.filter(d=>d.sezioneId === selSez);   // le cartelle si aprono, non si mescolano
     }
     return l.sort((a,b)=>{
       const da = a.data||a.creato.slice(0,10), db_ = b.data||b.creato.slice(0,10);
@@ -3669,37 +3735,52 @@ function App(){
              : (sezCorrente&&sezCorrente.descrizione) || `${docList.length} documenti`}</p>
           <input className="search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca in tutto il quaderno…"/>
         </div>
-        {selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && !q.trim() && (
-          <div className="cartelle">
-            <button className={'cart'+(!cartella?' on':'')}
-              onClick={()=>setCartella(null)}
-              onDragOver={e=>{e.preventDefault(); setDragSu('RADICE');}}
-              onDragLeave={()=>setDragSu(null)}
-              onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), selSez); setDragSu(null);}}>
-              <span className={'ic'+(dragSu==='RADICE'?' evid':'')}>▤</span> Tutti
-            </button>
-            {figlieDi(selSez).map(f=>(
-              <button key={f.id} className={'cart'+(cartella===f.id?' on':'')+(dragSu===f.id?' drop':'')}
-                onClick={()=>setCartella(f.id)}
-                onDoubleClick={()=>setModalSez({sezione:f})}
-                onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
-                onDragLeave={()=>setDragSu(null)}
-                onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), f.id); setDragSu(null);}}>
-                <span className="ic" style={{color:f.colore}}>▣</span> {f.nome}
-                <span className="q">{countBySez[f.id]||''}</span>
-              </button>
-            ))}
-            <button className="cart nuova" title="Nuova cartella dentro questa sezione"
-              onClick={()=>setModalSez({sezione:null, parent:selSez})}>+ cartella</button>
+        {selMulti && (
+          <div className="barra-sel">
+            <span>{scelti.length} scelti</span>
+            <button className="btn sm" disabled={!scelti.length}
+              onClick={()=>setModalSposta({ids:scelti})}>Sposta in…</button>
+            <button className="btn ghost sm" onClick={()=>{setSelMulti(false); setScelti([]);}}>Annulla</button>
           </div>
         )}
         <div className="new-row">
           <button className="btn primary sm" style={{flex:1}} onClick={()=>setModalNew(true)}>+ Nuovo documento</button>
+          <button className={'btn sm'+(selMulti?' primary':'')} title="Scegli più documenti da spostare"
+            onClick={()=>{ setSelMulti(m=>!m); setScelti([]); }}>☑</button>
           <button className="btn sm" onClick={()=>esportaSezione('word')} title="Esporta l'elenco in Word">Word</button>
           <button className="btn sm" disabled={pdfBusy} onClick={()=>esportaSezione('pdf')} title="Esporta l'elenco in PDF">{pdfBusy?'PDF…':'PDF'}</button>
         </div>
         <div className="list">
-          {docList.length===0 && (
+          {cartella && (
+            <button className="riga-cart indietro" onClick={()=>{setCartella(null); setSelDoc(null);}}>
+              ← {sezCorrente ? sezCorrente.nome : 'Indietro'}
+            </button>
+          )}
+          {!cartella && !q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && (
+            <>
+              {figlieDi(selSez).map(f=>(
+                <button key={f.id} className={'riga-cart'+(dragSu===f.id?' drop':'')}
+                  onClick={()=>{ setCartella(f.id); setSelDoc(null); }}
+                  onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
+                  onDragLeave={()=>setDragSu(null)}
+                  onDrop={e=>{
+                    e.preventDefault();
+                    const ids = e.dataTransfer.getData('text/plain').split(',').filter(Boolean);
+                    ids.forEach(id=>spostaDoc(id, f.id));
+                    setDragSu(null); setScelti([]);
+                  }}>
+                  <span className="ic" style={{color:f.colore}}>▣</span>
+                  <span className="t">{f.nome}</span>
+                  <span className="q">{countBySez[f.id]||0}</span>
+                  <span className="ed" onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
+                </button>
+              ))}
+              <button className="riga-cart nuova" onClick={()=>setModalSez({sezione:null, parent:selSez})}>
+                <span className="ic">＋</span><span className="t">Nuova cartella</span>
+              </button>
+            </>
+          )}
+          {docList.length===0 && !figlieDi(selSez||'').length && (
             <div className="empty">
               <strong>{q.trim()?'Nessun risultato':'Sezione vuota'}</strong>
               {q.trim()?'Prova con un\'altra parola.':'Crea il primo documento per iniziare.'}
@@ -3709,11 +3790,22 @@ function App(){
             // le macro-attività raggruppano soltanto: non sono cose da fare
             const aperte = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
             return (
-              <button key={d.id} className={'card'+(selDoc===d.id?' on':'')}
+              <button key={d.id} className={'card'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
                 draggable
-                onDragStart={e=>{ e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed='move'; }}
+                onDragStart={e=>{
+                  const ids = scelti.indexOf(d.id)>=0 ? scelti : [d.id];
+                  e.dataTransfer.setData('text/plain', ids.join(','));
+                  e.dataTransfer.effectAllowed='move';
+                }}
                 onDragEnd={()=>setDragSu(null)}
-                onClick={()=>{setSelDoc(d.id); setMobileView('doc');}}>
+                onClick={()=>{
+                  if(selMulti){
+                    setScelti(p=> p.indexOf(d.id)>=0 ? p.filter(x=>x!==d.id) : [...p, d.id]);
+                    return;
+                  }
+                  setSelDoc(d.id); setMobileView('doc');
+                }}>
+                {selMulti && <span className={'segno'+(scelti.indexOf(d.id)>=0?' on':'')}>✓</span>}
                 <div className="t">{d.titolo||'Senza titolo'}</div>
                 <div className="m">
                   {d.data && <span>{fmtDate(d.data)}</span>}
@@ -3721,6 +3813,8 @@ function App(){
                   {aperte>0 && <span className="tag todo">{aperte} da fare</span>}
                   {q.trim() && sezioni[d.sezioneId] && <span>{sezioni[d.sezioneId].nome}</span>}
                 </div>
+                <span className="card-menu" title="Sposta"
+                  onClick={e=>{e.stopPropagation(); setModalSposta({ids:[d.id]});}}>⋯</span>
               </button>
             );
           })}
@@ -3754,6 +3848,15 @@ function App(){
       )}
       {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
       {modalFmt && <FormatoModal fmt={fmt} onSave={salvaFmt} onClose={()=>setModalFmt(false)}/>}
+      {modalSposta && (
+        <SpostaModal quanti={modalSposta.ids.length} radici={radici} figlieDi={figlieDi}
+          correnteId={cartella || selSez}
+          onClose={()=>setModalSposta(null)}
+          onSposta={(destId)=>{
+            modalSposta.ids.forEach(id=>spostaDoc(id, destId));
+            setModalSposta(null); setScelti([]); setSelMulti(false);
+          }}/>
+      )}
       {modalStorico && doc && (
         <StoricoModal doc={doc} onClose={()=>setModalStorico(false)}
           onRipristina={(v)=>{
