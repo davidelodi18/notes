@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "7 set · versioni e sicurezza";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · spunte e pennello";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -213,6 +213,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-tools button{border:0;background:none;padding:4px 8px;border-radius:4px;color:var(--muted);min-width:30px}
 .rt-tools button:hover:not(:disabled){background:var(--line-soft);color:var(--ink)}
 .rt-tools button:disabled{opacity:.3;cursor:default}
+.sec-h .link-btn{font-size:12px;white-space:nowrap}
+.conta-att{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .conta-celle{align-self:center;background:var(--accent-soft);color:#255840;border-radius:20px;
   padding:2px 9px;font-size:11.5px;margin-right:4px;white-space:nowrap}
 .pal-wrap{position:relative;display:inline-flex;gap:0}
@@ -1628,6 +1630,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   /* appunti delle celle: matrice di testi, come in un foglio di calcolo */
   const appunti = useRef(null);
+  const appuntiHtml = useRef('');
   const matriceDa = (celle) => {
     const perRiga = new Map();
     celle.forEach(td=>{
@@ -1637,13 +1640,46 @@ function RichText({value, onChange, placeholder, docKey}){
     });
     return Array.from(perRiga.values()).map(riga=>riga.map(td=>td.textContent));
   };
+  /* ricostruisce una vera tabella con le celle scelte, stili compresi */
+  const tabellaHtmlDa = (celle) => {
+    if(!celle.length) return '';
+    const tab = celle[0].closest('table');
+    if(!tab) return '';
+    const insieme = new Set(celle);
+    const righe = [];
+    Array.from(tab.querySelectorAll('tr')).forEach(tr=>{
+      const dentro = Array.from(tr.children).filter(td=>insieme.has(td));
+      if(!dentro.length) return;
+      righe.push('<tr>' + dentro.map(td=>{
+        const tag = td.tagName.toLowerCase();
+        const st = td.getAttribute('style');
+        const cs = (td.colSpan||1) > 1 ? ` colspan="${td.colSpan}"` : '';
+        const rs = (td.rowSpan||1) > 1 ? ` rowspan="${td.rowSpan}"` : '';
+        return `<${tag}${st?` style="${st}"`:''}${cs}${rs}>${td.innerHTML}</${tag}>`;
+      }).join('') + '</tr>');
+    });
+    return '<table style="border-collapse:collapse">' +
+      '<tbody>' + righe.join('') + '</tbody></table>';
+  };
+
   const copiaCelle = (taglia) => {
     const celle = celleCoinvolte();
     if(!celle.length) return false;
     const m = matriceDa(celle);
     appunti.current = m;
+    appuntiHtml.current = tabellaHtmlDa(celle);
     const testo = m.map(r=>r.join('\t')).join('\n');
-    try{ if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(testo); }catch(err){}
+    // negli appunti metto sia la tabella sia il testo a colonne: Word ed Excel prendono ciascuno il suo
+    try{
+      if(navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined'){
+        navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([appuntiHtml.current], {type:'text/html'}),
+          'text/plain': new Blob([testo], {type:'text/plain'})
+        })]).catch(()=>{ try{ navigator.clipboard.writeText(testo); }catch(e2){} });
+      } else if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(testo);
+      }
+    }catch(err){}
     if(taglia){ celle.forEach(td=>{ td.innerHTML = '<br>'; }); emit(true); }
     return true;
   };
@@ -1795,6 +1831,15 @@ function RichText({value, onChange, placeholder, docKey}){
     const cell = cellFromSelection();
     if(!cell) return false;
     if(e.key === 'Escape' || e.key === 'F2'){ e.preventDefault(); tornaInSelezione(); return true; }
+    if((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')){
+      e.preventDefault();                                  // seleziona tutta la tabella, non il testo
+      const tutte = Array.from(cell.closest('table').querySelectorAll('td,th'));
+      setModo('sel'); applicaModo('sel');
+      selRef.current = tutte; attivaRef.current = cell; fuocoRef.current = cell;
+      disegnaSel(); setInTable(true); posizionaBox(cell);
+      try{ ref.current.focus({preventScroll:true}); const s0=window.getSelection(); if(s0) s0.removeAllRanges(); }catch(err){}
+      return true;
+    }
     const tab = cell.closest('table');
     const riga = cell.parentNode;
     const righe = celleDi(tab);
@@ -2039,13 +2084,12 @@ function RichText({value, onChange, placeholder, docKey}){
     const destinazioni = celleScelte();
     if(destinazioni.length){
       applicaStileCelle(stile);
-      if(f.cella && (f.colSpan > 1 || f.rowSpan > 1)){
+      if(f.cella && (f.colSpan > 1 || f.rowSpan > 1) && !daSelezione){
         destinazioni.filter(td=>td.isConnected).forEach(td=>unisciDa(td, f.rowSpan, f.colSpan));
         puliscoSel(); setInTable(false); setTblBox(null);
         emit(true);
       }
-      setFmtTPreso(false);
-      return;
+      return;                                   // il pennello resta carico per il punto successivo
     }
 
     if(!daSelezione){ ref.current.focus(); ripristinaRange(); }
@@ -2058,7 +2102,7 @@ function RichText({value, onChange, placeholder, docKey}){
     Object.entries(stile).forEach(([k,v])=>{ if(v) messo[k] = v; });
     if(!Object.keys(messo).length){ setFmtTPreso(false); return; }
     applicaStileTesto(messo);
-    setFmtTPreso(false);
+    // resta acceso: si spegne con Esc o ripremendo 🖌
   };
 
   /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
@@ -2334,7 +2378,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
       {busy && <div className="peso">{busy}</div>}
       {fmtTPreso && <div className="avviso-pennello">
-        🖌 Pennello attivo — nel testo: seleziona e si applica da solo. Nelle tabelle: scegli le celle e ripremi 🖌. (Esc per annullare)
+        🖌 Pennello carico — seleziona testo o celle e il formato si applica subito. Resta attivo per più punti: Esc o 🖌 per spegnerlo.
       </div>}
 
       <div className="rt-wrap" ref={wrapRef}>
@@ -2504,9 +2548,7 @@ function RichText({value, onChange, placeholder, docKey}){
         onTouchEnd={()=>{
           trascina.current = false;
           salvaRange();
-          if(fmtTPreso && !cellFromSelection() && modo !== 'sel'){
-            setTimeout(()=>incollaFormatoTesto(true), 10);
-          }
+          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
         }}
         onBlur={salvaRange}
         onFocus={checkCtx}
@@ -2609,7 +2651,7 @@ function AutoNote({value, onChange, placeholder}){
   );
 }
 
-function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, autofocus, chiusa, onToggle}){
+function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, autofocus, chiusa, onToggle, onSpuntaTutte}){
   const complete = totali>0 && fatte===totali;
   return (
     <div className={'row macro'+(complete?' compl':'')+(chiusa?' chiusa':'')}>
@@ -2625,6 +2667,9 @@ function MacroRow({m, fatte, totali, onChange, onRemove, onAdd, mv, onEnter, aut
           <span className={'conta'+(complete?' ok':'')}>
             {totali===0 ? 'nessuna sotto-attività' : `${fatte} di ${totali} chiuse`}
           </span>
+          {totali>0 && <button className="link-btn" onClick={onSpuntaTutte}>
+            {complete ? 'togli le spunte' : 'spunta tutte'}
+          </button>}
           {totali>0 && <button className="link-btn" onClick={onToggle}>{chiusa?'espandi':'comprimi'}</button>}
           <button className="link-btn" onClick={onAdd}>+ sotto-attività</button>
         </div>
@@ -3397,7 +3442,23 @@ function App(){
             </>
           )}
 
-          <div className="sec-h"><h3>Attività</h3><div className="rule"></div></div>
+          {(() => {
+            const tutte = (doc.azioni||[]).filter(a=>!a.macro && (a.testo||'').trim());
+            const aperte = tutte.filter(a=>!a.fatto).length;
+            return (
+              <div className="sec-h">
+                <h3>Attività</h3>
+                {tutte.length > 0 && (
+                  <button className="link-btn" onClick={()=>{
+                    const tuttoFatto = aperte === 0;
+                    patchDoc({azioni: doc.azioni.map(a=> a.macro ? a : {...a, fatto: !tuttoFatto})});
+                  }}>{aperte === 0 ? 'togli tutte le spunte' : 'spunta tutte'}</button>
+                )}
+                {tutte.length > 0 && <span className="conta-att">{tutte.length - aperte} di {tutte.length}</span>}
+                <div className="rule"></div>
+              </div>
+            );
+          })()}
           {(() => {
             const az = doc.azioni || [];
             const set = (nuove) => patchDoc({azioni:nuove});
@@ -3468,6 +3529,11 @@ function App(){
                         onToggle={()=>upd(b.capo.id, {...b.capo, chiusa: !b.capo.chiusa})}
                         onEnter={()=>inserisciFiglia(i, b.figlie.length)}
                         onChange={nv=>upd(b.capo.id,nv)}
+                        onSpuntaTutte={()=>{
+                          const tuttoFatto = b.figlie.every(x=>x.fatto);
+                          const ids = b.figlie.map(x=>x.id);
+                          set(az.map(x=> ids.indexOf(x.id)>=0 ? {...x, fatto: !tuttoFatto} : x));
+                        }}
                         onAdd={()=>inserisciFiglia(i, b.figlie.length)}
                         onRemove={()=>{
                           if(b.figlie.length && !confirm(`Eliminare "${b.capo.testo||'la macro-attività'}" e le sue ${b.figlie.length} sotto-attività?`)) return;
