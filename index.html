@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · logica Excel";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · gruppi invisibili";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -609,9 +609,9 @@ ol ol{list-style-type:lower-alpha} ol ol ol{list-style-type:lower-roman}
 li{margin:3pt 0}
 .note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
-.grp{margin:14pt 0}
-.grp-t{font-weight:bold;margin-bottom:7pt}
-.grp-c{margin-left:0;padding-left:0}
+.grp{margin:0}
+.grp-t{margin:0 0 4pt}
+.grp-c{margin:0;padding:0}
 .doc-sep{page-break-after:always}
 `;
 }
@@ -650,9 +650,9 @@ function pdfDomCss(o){
 .pdfdoc img{max-width:100%;height:auto}
 .pdfdoc figure{margin:12px 0;text-align:center}
 .pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
-.pdfdoc .grp{margin:20px 0}
-.pdfdoc .grp-t{font-weight:bold;margin-bottom:10px}
-.pdfdoc .grp-c{margin-left:0;padding-left:0}
+.pdfdoc .grp{margin:0}
+.pdfdoc .grp-t{margin:0 0 6px}
+.pdfdoc .grp-c{margin:0;padding:0}
 .pdfdoc .grp-c > *:first-child{margin-top:0}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
@@ -935,6 +935,10 @@ function RichText({value, onChange, placeholder, docKey}){
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
     storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
+    setTimeout(()=>{
+      const g = ref.current ? Array.from(ref.current.querySelectorAll('.grp')) : [];
+      setTuttiChiusi(g.length > 0 && g.every(x=>x.classList.contains('chiuso')));
+    }, 0);
     setPuoAnnullare(false); setPuoRipetere(false);
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
@@ -1200,6 +1204,16 @@ function RichText({value, onChange, placeholder, docKey}){
     primo.remove();
     emit(true);
   };
+  const [tuttiChiusi,setTuttiChiusi] = useState(false);
+  const alternaTutti = () => {
+    const gruppi = Array.from(ref.current.querySelectorAll('.grp'));
+    if(!gruppi.length){ alert('In questo documento non ci sono gruppi.'); return; }
+    const daChiudere = gruppi.some(g=>!g.classList.contains('chiuso'));
+    gruppi.forEach(g=>g.classList.toggle('chiuso', daChiudere));
+    setTuttiChiusi(daChiudere);
+    emit(true);
+  };
+
   const sciogli = () => {
     const g = dentroGruppo();
     if(!g){ alert('Metti il cursore dentro un gruppo, o seleziona le righe da farne uscire.'); return; }
@@ -2316,6 +2330,7 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
         <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo. Dentro una tabella, la raggruppa con la riga sopra">⊟</button>
         <button onClick={sciogli} title="Sciogli: con il cursore nel gruppo lo apre tutto, con delle righe selezionate porta fuori solo quelle">⊞</button>
+        <button onClick={alternaTutti} title="Apri o chiudi tutti i gruppi del documento">{tuttiChiusi ? '⊕' : '⊖'}</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
