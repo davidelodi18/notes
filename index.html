@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · spunte e pennello";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "8 set · logica Excel";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1730,7 +1730,11 @@ function RichText({value, onChange, placeholder, docKey}){
       vaiCella(ri + qui.rs, ci);                // scende alla riga successiva
       return true;
     }
-    if(e.key === 'Escape'){ e.preventDefault(); puliscoSel(); setInTable(false); setTblBox(null); return true; }
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      if(fmtTPresoRef.current){ setFmtTPreso(false); return true; }   // prima spengo il pennello
+      puliscoSel(); setInTable(false); setTblBox(null); return true;
+    }
 
     const salto = e.ctrlKey || e.metaKey;   // Ctrl/Cmd: fino al bordo, come nel foglio di calcolo
     if(e.key === 'ArrowDown'){
@@ -1779,6 +1783,17 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
       e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return true;
+    }
+    if(e.altKey && (e.key === 'o' || e.key === 'O')){
+      e.preventDefault();
+      if(fmtTPresoRef.current) setFmtTPreso(false); else copiaFormatoTesto();
+      return true;
+    }
+    if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')){
+      e.preventDefault(); copiaFormatoTesto(); return true;
+    }
+    if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')){
+      e.preventDefault(); incollaFormatoTesto(); return true;
     }
     if((e.ctrlKey || e.metaKey) && !e.altKey && 'biu'.indexOf((e.key||'').toLowerCase()) >= 0){
       e.preventDefault();
@@ -1864,11 +1879,11 @@ function RichText({value, onChange, placeholder, docKey}){
       e.preventDefault();
       if(e.shiftKey){
         const prec = cellaIn(gr, ri, ci-1) || cellaVicina(ri-1, gr.nCol-1);
-        if(prec) entraInModifica(prec);
+        if(prec) selezionaCella(prec);          // confermo e mi sposto: cella selezionata, non aperta
       } else {
         let succ = cellaIn(gr, ri, ci + qui.cs) || cellaIn(gr, ri + qui.rs, 0);
         if(!succ) succ = nuovaRigaIn(tab, riga).children[0];   // in fondo: nuova riga
-        entraInModifica(succ);
+        selezionaCella(succ);
       }
       return true;
     }
@@ -1881,7 +1896,8 @@ function RichText({value, onChange, placeholder, docKey}){
     if(e.key === 'Enter'){
       e.preventDefault();
       const sotto = cellaIn(gr, ri + qui.rs, ci) || cellaVicina(ri + qui.rs, ci);
-      if(sotto) entraInModifica(sotto);          // scende alla cella sotto, pronta a ricevere testo
+      if(sotto) selezionaCella(sotto);           // conferma e scende, con la cella selezionata
+      else tornaInSelezione();                   // ultima riga: confermo e resto qui
       return true;
     }
 
@@ -1890,7 +1906,7 @@ function RichText({value, onChange, placeholder, docKey}){
       const giu = e.key === 'ArrowDown';
       const r = giu ? ri + qui.rs : ri - 1;
       const td = cellaIn(gr, r, ci) || cellaVicina(r, ci);
-      if(td){ e.preventDefault(); entraInModifica(td); return true; }
+      if(td){ e.preventDefault(); selezionaCella(td); return true; }
       return false;   // fuori dalla tabella lascio fare al browser
     }
 
@@ -1899,11 +1915,11 @@ function RichText({value, onChange, placeholder, docKey}){
       const b = aiBordi(cell);
       if(e.key === 'ArrowRight' && b.fine){
         const succ = cellaIn(gr, ri, ci + qui.cs) || cellaIn(gr, ri + qui.rs, 0);
-        if(succ){ e.preventDefault(); entraInModifica(succ); return true; }
+        if(succ){ e.preventDefault(); selezionaCella(succ); return true; }
       }
       if(e.key === 'ArrowLeft' && b.inizio){
         const prec = cellaIn(gr, ri, ci-1) || cellaVicina(ri-1, gr.nCol-1);
-        if(prec){ e.preventDefault(); entraInModifica(prec); return true; }
+        if(prec){ e.preventDefault(); selezionaCella(prec); return true; }
       }
       return false;
     }
@@ -1997,6 +2013,8 @@ function RichText({value, onChange, placeholder, docKey}){
   /* copia formato del testo: grassetto, corsivo, colore, evidenziatore */
   const fmtTesto = useRef(null);
   const [fmtTPreso,setFmtTPreso] = useState(false);
+  const fmtTPresoRef = useRef(false);
+  useEffect(()=>{ fmtTPresoRef.current = fmtTPreso; },[fmtTPreso]);
   const eGrassetto = (w) => w === 'bold' || w === 'bolder' || parseInt(w,10) >= 600;
   const vuoto = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
 
@@ -2335,7 +2353,7 @@ function RichText({value, onChange, placeholder, docKey}){
         <button className={fmtTPreso?'attivo-fmt':''}
           onMouseDown={e=>{e.preventDefault(); salvaRange();}}
           onClick={()=>{ if(fmtTPreso) setFmtTPreso(false); else copiaFormatoTesto(); }}
-          title={fmtTPreso ? 'Pennello attivo: seleziona il testo da formattare (Esc per annullare)' : 'Copia il formato di questo testo'}>🖌</button>
+          title={fmtTPreso ? 'Pennello attivo (Esc o Alt+O per spegnerlo)' : 'Copia formato — Alt+O oppure Ctrl+Maiusc+C'}>🖌</button>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setPal(pal==='allinea'?null:'allinea')} onMouseDown={e=>{e.preventDefault(); salvaRange();}}
@@ -2378,7 +2396,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
       {busy && <div className="peso">{busy}</div>}
       {fmtTPreso && <div className="avviso-pennello">
-        🖌 Pennello carico — seleziona testo o celle e il formato si applica subito. Resta attivo per più punti: Esc o 🖌 per spegnerlo.
+        🖌 Pennello carico — seleziona testo o celle e il formato si applica subito. Resta attivo per più punti: Esc, 🖌 o Alt+O per spegnerlo.
       </div>}
 
       <div className="rt-wrap" ref={wrapRef}>
@@ -2529,6 +2547,18 @@ function RichText({value, onChange, placeholder, docKey}){
         data-ph={placeholder||'Scrivi qui…'}
         onInput={emit}
         onKeyDown={e=>{
+          // copia formato: Alt+O carica il pennello, Ctrl/Cmd+Maiusc+C copia, +V applica
+          if(e.altKey && (e.key === 'o' || e.key === 'O')){
+            e.preventDefault();
+            if(fmtTPresoRef.current) setFmtTPreso(false); else copiaFormatoTesto();
+            return;
+          }
+          if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')){
+            e.preventDefault(); copiaFormatoTesto(); return;
+          }
+          if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')){
+            e.preventDefault(); incollaFormatoTesto(); return;
+          }
           if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
             e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return;
           }
