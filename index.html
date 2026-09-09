@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "8 set · qualità PDF";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "9 set · cartelle aperte";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -110,9 +110,15 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   background:var(--paper);margin-top:10px;outline:none}
 .search:focus{border-color:var(--accent)}
 /* cartelle come righe dell'elenco */
-.riga-cart{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:11px;border:0;
-  background:transparent;border-radius:var(--radius);margin-bottom:2px;color:var(--ink)}
-.riga-cart:hover{background:#eaefeb}
+.gruppo-cart{border-radius:var(--radius);margin-bottom:5px;overflow:hidden}
+.riga-cart{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:11px;border:0;
+  background:transparent;border-radius:var(--radius);color:var(--ink)}
+.riga-cart:hover{background:rgba(255,255,255,.5)}
+.riga-cart .tri{width:11px;flex:none;color:var(--muted);font-size:10px}
+.card.dentro{margin:0 7px 5px 24px;width:auto;background:rgba(255,255,255,.72)}
+.card.dentro:hover{background:#fff}
+.card.dentro.on{background:#fff;border-color:var(--line)}
+.cart-vuota{font-size:12px;color:var(--muted);padding:2px 12px 11px 34px}
 .riga-cart .ic{font-size:13px;flex:none;color:var(--muted)}
 .riga-cart .t{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .riga-cart .q{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -490,6 +496,12 @@ const nowISO = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0,10);
 
 const COLORS = ['#2f6f4e','#2b5d80','#8a4a6b','#a86a1f','#5c5470','#3d7068','#8c4a3f','#4a5d23'];
+/* versione slavata di un colore, per lo sfondo delle righe */
+const tinta = (hex, a) => {
+  const h = (hex||'#2f6f4e').replace('#','');
+  const n = parseInt(h.length===3 ? h.split('').map(c=>c+c).join('') : h, 16);
+  return `rgba(${(n>>16)&255}, ${(n>>8)&255}, ${n&255}, ${a})`;
+};
 
 const TEMPLATES = {
   vuoto: {label:'Riunione vuota', agenda:[]},
@@ -3252,7 +3264,13 @@ function App(){
   const figlieDi = useCallback((id)=>sezList.filter(s=>s.parentId===id),[sezList]);
   const ramoDi = useCallback((id)=>[id, ...sezList.filter(s=>s.parentId===id).map(s=>s.id)],[sezList]);
   const [chiuse,setChiuse] = useState(()=> local.get('quaderno:sezChiuse') || {});
-  const [cartella,setCartella] = useState(null);   // sottosezione aperta nell'elenco
+  const [cartella,setCartella] = useState(null);   // cartella dove nascono i nuovi documenti
+  const [aperte,setAperte] = useState(()=> local.get('quaderno:cartAperte') || {});
+  const apriChiudi = (id) => setAperte(p=>{
+    const n = {...p, [id]: !p[id]};
+    local.set('quaderno:cartAperte', n);
+    return n;
+  });
   const [dragSu,setDragSu] = useState(null);       // dove sto trascinando
   const [selMulti,setSelMulti] = useState(false);  // modalità "scegli più documenti"
   const [scelti,setScelti] = useState([]);         // id dei documenti scelti
@@ -3266,10 +3284,8 @@ function App(){
         || stripHtml(d.corpo).toLowerCase().includes(s)
         || (d.partecipanti||'').toLowerCase().includes(s)
         || (d.agenda||[]).some(p=>(p.titolo+' '+p.note).toLowerCase().includes(s)));
-    } else if(cartella){
-      l = l.filter(d=>d.sezioneId === cartella);
     } else if(selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO'){
-      l = l.filter(d=>d.sezioneId === selSez);   // le cartelle si aprono, non si mescolano
+      l = l.filter(d=>d.sezioneId === selSez);   // i documenti delle cartelle compaiono dentro di esse
     }
     return l.sort((a,b)=>{
       const da = a.data||a.creato.slice(0,10), db_ = b.data||b.creato.slice(0,10);
@@ -3343,12 +3359,13 @@ function App(){
   },[selDoc]);
 
   const creaDoc = (tipo,tpl,titolo) => {
+    // se ho premuto ＋ su una cartella, il documento nasce lì
     const sid = cartella || ((selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO') ? selSez : (sezList[0]&&sezList[0].id));
     if(!sid){ alert('Crea prima una sezione.'); return; }
     const d = emptyDoc(sid, tipo, tpl);
     d.titolo = titolo || '';
     saveDoc(d.id, d);
-    setSelDoc(d.id); setModalNew(false); setMobileView('doc');
+    setSelDoc(d.id); setModalNew(false); setMobileView('doc'); setCartella(null);
   };
 
   const eliminaDoc = () => {
@@ -3780,7 +3797,7 @@ function App(){
       <div className={'col-list'+mobileHide('list')}>
         <div className="list-head">
           <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : selSez==='SPAZIO'? 'Spazio'
-             : (cartella && sezioni[cartella] ? sezioni[cartella].nome : (sezCorrente? sezCorrente.nome : 'Documenti'))}</h2>
+             : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
           <p>{q.trim()? `${docList.length} documenti trovati`
              : selSez==='SPAZIO' ? 'Occupazione del database'
              : selSez==='ATTIVITA' ? 'Vista trasversale'
@@ -3803,16 +3820,15 @@ function App(){
           <button className="btn sm" disabled={pdfBusy} onClick={()=>esportaSezione('pdf')} title="Esporta l'elenco in PDF">{pdfBusy?'PDF…':'PDF'}</button>
         </div>
         <div className="list">
-          {cartella && (
-            <button className="riga-cart indietro" onClick={()=>{setCartella(null); setSelDoc(null);}}>
-              ← {sezCorrente ? sezCorrente.nome : 'Indietro'}
-            </button>
-          )}
-          {!cartella && !q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && (
-            <>
-              {figlieDi(selSez).map(f=>(
-                <button key={f.id} className={'riga-cart'+(dragSu===f.id?' drop':'')}
-                  onClick={()=>{ setCartella(f.id); setSelDoc(null); }}
+          {!q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && figlieDi(selSez).map(f=>{
+            const dentro = Object.values(documenti)
+              .filter(d=>d.sezioneId===f.id)
+              .sort((a,b)=>((b.data||b.creato||'').localeCompare(a.data||a.creato||'')));
+            const espansa = !!aperte[f.id];
+            return (
+              <div key={f.id} className="gruppo-cart" style={{background: tinta(f.colore, espansa ? 0.09 : 0.055)}}>
+                <button className={'riga-cart'+(dragSu===f.id?' drop':'')}
+                  onClick={()=>apriChiudi(f.id)}
                   onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
                   onDragLeave={()=>setDragSu(null)}
                   onDrop={e=>{
@@ -3820,15 +3836,53 @@ function App(){
                     const ids = e.dataTransfer.getData('text/plain').split(',').filter(Boolean);
                     ids.forEach(id=>spostaDoc(id, f.id));
                     setDragSu(null); setScelti([]);
+                    setAperte(p=>({...p,[f.id]:true}));
                   }}>
+                  <span className="tri">{espansa ? '▾' : '▸'}</span>
                   <span className="ic" style={{color:f.colore}}>▣</span>
                   <span className="t">{f.nome}</span>
-                  <span className="q">{countBySez[f.id]||0}</span>
-                  <span className="ed" onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
+                  <span className="q">{dentro.length || ''}</span>
+                  <span className="ed" title="Nuovo documento qui"
+                    onClick={e=>{e.stopPropagation(); setCartella(f.id); setAperte(p=>({...p,[f.id]:true})); setModalNew(true);}}>＋</span>
+                  <span className="ed" title="Rinomina"
+                    onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
                 </button>
-              ))}
-            </>
-          )}
+                {espansa && dentro.length === 0 && (
+                  <div className="cart-vuota">Nessun documento — trascinane uno qui</div>
+                )}
+                {espansa && dentro.map(d=>{
+                  const aperteAz = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
+                  return (
+                    <button key={d.id} className={'card dentro'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
+                      draggable
+                      onDragStart={e=>{
+                        const ids = scelti.indexOf(d.id)>=0 ? scelti : [d.id];
+                        e.dataTransfer.setData('text/plain', ids.join(','));
+                        e.dataTransfer.effectAllowed='move';
+                      }}
+                      onClick={e=>{
+                        if(selMulti || e.ctrlKey || e.metaKey){
+                          if(!selMulti) setSelMulti(true);
+                          setScelti(p=> p.indexOf(d.id)>=0 ? p.filter(x=>x!==d.id) : [...p, d.id]);
+                          return;
+                        }
+                        setSelDoc(d.id); setMobileView('doc');
+                      }}>
+                      {selMulti && <span className={'segno'+(scelti.indexOf(d.id)>=0?' on':'')}>✓</span>}
+                      <div className="t">{d.titolo||'Senza titolo'}</div>
+                      <div className="m">
+                        {d.data && <span>{fmtDate(d.data)}</span>}
+                        {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
+                        {aperteAz>0 && <span className="tag todo">{aperteAz} da fare</span>}
+                      </div>
+                      <span className="card-menu" title="Sposta"
+                        onClick={e=>{e.stopPropagation(); setModalSposta({ids:[d.id]});}}>⋯</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
           {docList.length===0 && !figlieDi(selSez||'').length && (
             <div className="empty">
               <strong>{q.trim()?'Nessun risultato':'Sezione vuota'}</strong>
