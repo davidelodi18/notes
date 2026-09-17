@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "17 set · formule, spunte, pennello";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "17 set · archivio e cestino";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -184,6 +184,17 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .tag{font-size:11px;padding:1px 6px;border-radius:20px;border:1px solid var(--line)}
 .tag.meet{background:var(--accent-soft);border-color:#c9ded2;color:#255840}
 .tag.todo{background:var(--amber-soft);border-color:#ecd9b8;color:var(--amber)}
+.tag.arch{background:#eef1f4;border-color:#d4dce3;color:#4f6577}
+.tag.cest{background:#f7e9e8;border-color:#e8cfcd;color:var(--red)}
+.card-az{position:absolute;right:8px;bottom:8px;font-size:11.5px;color:var(--accent);
+  border-radius:4px;padding:2px 6px}
+.card-az:hover{background:var(--accent-soft)}
+.banner-doc{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-radius:var(--radius);
+  padding:10px 13px;margin-bottom:18px;font-size:13px}
+.banner-doc.arch{background:#eef1f4;color:#3f5464}
+.banner-doc.cest{background:#f7e9e8;color:#7d2f28}
+.banner-doc b{font-weight:600}
+.banner-doc .spacer{flex:1}
 .empty{padding:30px 18px;color:var(--muted);text-align:center;font-size:13px}
 .empty strong{display:block;color:var(--ink-soft);font-weight:500;margin-bottom:4px}
 
@@ -525,6 +536,14 @@ const tinta = (hex, a) => {
   const h = (hex||'#2f6f4e').replace('#','');
   const n = parseInt(h.length===3 ? h.split('').map(c=>c+c).join('') : h, 16);
   return `rgba(${(n>>16)&255}, ${(n>>8)&255}, ${n&255}, ${a})`;
+};
+
+const GIORNI_CESTINO = 30;   // quanto restano i documenti nel cestino prima di sparire davvero
+/* giorni che mancano allo svuotamento automatico */
+const giorniCestino = c => {
+  if(!c) return null;
+  const fine = new Date(c).getTime() + GIORNI_CESTINO*86400000;
+  return Math.max(0, Math.ceil((fine - Date.now())/86400000));
 };
 
 const TEMPLATES = {
@@ -3391,8 +3410,8 @@ function SectionModal({sezione, onSave, onDelete, onClose, count, radici, parent
         <div className="modal-foot">
           {!nuovo && <button className="btn danger" style={{marginRight:'auto'}}
             onClick={()=>{
-              const extra = haFiglie ? ' Verranno eliminate anche le sottosezioni con i loro documenti.' : '';
-              if(confirm(`Eliminare "${sezione.nome}"? I ${count} documenti dentro verranno eliminati.${extra}`)) onDelete();
+              const extra = haFiglie ? ' Con lei vanno nel cestino anche le sottosezioni.' : '';
+              if(confirm(`Eliminare "${sezione.nome}"? Finisce nel cestino con i suoi ${count} documenti e si recupera per 30 giorni.${extra}`)) onDelete();
             }}>Elimina</button>}
           <button className="btn" onClick={onClose}>Annulla</button>
           <button className="btn primary" disabled={!nome.trim()}
@@ -3758,7 +3777,7 @@ function App(){
   /* selezione iniziale */
   useEffect(()=>{
     if(!pronto || selSez) return;
-    const ids = Object.keys(sezioni);
+    const ids = Object.keys(sezioni).filter(x=>!sezioni[x].cestinata);
     if(ids.length){
       ids.sort((a,b)=>(sezioni[a].ordine||0)-(sezioni[b].ordine||0));
       setSelSez(ids[0]);
@@ -3779,7 +3798,8 @@ function App(){
     }
   },[pronto,sezioni,saveSez]);
 
-  const sezList = useMemo(()=>Object.values(sezioni).sort((a,b)=>(a.ordine||0)-(b.ordine||0)),[sezioni]);
+  const sezList = useMemo(()=>Object.values(sezioni).filter(x=>!x.cestinata)
+    .sort((a,b)=>(a.ordine||0)-(b.ordine||0)),[sezioni]);
   const radici = useMemo(()=>sezList.filter(s=>!s.parentId),[sezList]);
   const figlieDi = useCallback((id)=>sezList.filter(s=>s.parentId===id),[sezList]);
   const ramoDi = useCallback((id)=>[id, ...sezList.filter(s=>s.parentId===id).map(s=>s.id)],[sezList]);
@@ -3798,6 +3818,11 @@ function App(){
   const alterna = (id) => setChiuse(p=>{ const n={...p, [id]: !p[id]}; local.set('quaderno:sezChiuse', n); return n; });
   const docList = useMemo(()=>{
     let l = Object.values(documenti);
+    if(selSez === 'CESTINO')
+      return l.filter(d=>d.cestinato).sort((a,b)=>(b.cestinato||'').localeCompare(a.cestinato||''));
+    if(selSez === 'ARCHIVIO')
+      return l.filter(d=>!d.cestinato && d.archiviato).sort((a,b)=>(b.archiviato||'').localeCompare(a.archiviato||''));
+    l = l.filter(d=>!d.cestinato && !d.archiviato);
     if(q.trim()){
       const s=q.toLowerCase();
       l = l.filter(d=>(d.titolo||'').toLowerCase().includes(s)
@@ -3814,14 +3839,21 @@ function App(){
   },[documenti,selSez,q,cartella,ramoDi]);
 
   const countBySez = useMemo(()=>{
-    const c={}; Object.values(documenti).forEach(d=>{c[d.sezioneId]=(c[d.sezioneId]||0)+1;}); return c;
+    const c={};
+    Object.values(documenti).forEach(d=>{ if(!d.cestinato && !d.archiviato) c[d.sezioneId]=(c[d.sezioneId]||0)+1; });
+    return c;
   },[documenti]);
+  const nCestino = useMemo(()=>Object.values(documenti).filter(d=>d.cestinato).length,[documenti]);
+  const nArchivio = useMemo(()=>Object.values(documenti).filter(d=>!d.cestinato && d.archiviato).length,[documenti]);
   const countRamo = useCallback((id)=>ramoDi(id).reduce((n,x)=>n+(countBySez[x]||0),0),[ramoDi,countBySez]);
 
   /* cose ancora da fare, sommate fra tutti i documenti della sezione e delle sue cartelle */
   const todoBySez = useMemo(()=>{
     const c={};
-    Object.values(documenti).forEach(d=>{ const n = daFare(d); if(n) c[d.sezioneId]=(c[d.sezioneId]||0)+n; });
+    Object.values(documenti).forEach(d=>{
+      if(d.cestinato || d.archiviato) return;
+      const n = daFare(d); if(n) c[d.sezioneId]=(c[d.sezioneId]||0)+n;
+    });
     return c;
   },[documenti]);
   const todoRamo = useCallback((id)=>ramoDi(id).reduce((n,x)=>n+(todoBySez[x]||0),0),[ramoDi,todoBySez]);
@@ -3829,6 +3861,7 @@ function App(){
   const azioniAperte = useMemo(()=>{
     const out=[];
     Object.values(documenti).forEach(d=>{
+      if(d.cestinato || d.archiviato) return;        // archivio e cestino restano fuori
       const az = d.azioni||[];
       const nomeMacro = {};
       az.forEach(a=>{ if(a.macro) nomeMacro[a.id] = a.testo; });
@@ -3861,6 +3894,62 @@ function App(){
     saveDoc(d.id, {...d, sezioneId: destId, aggiornato: nowISO()});
   };
 
+  /* ═══ archivio e cestino ═══ */
+  const eliminaDavvero = useCallback((id)=>{
+    saveDoc(id, null);
+    setTimeout(()=>{                       // via anche le copie di sicurezza di quel documento
+      if(HAS_FB) fbDb.ref(ROOT+'/storico/'+id).remove().catch(()=>{});
+      else { const st = local.get(ROOT+':storico') || {}; delete st[id]; local.set(ROOT+':storico', st); }
+    }, 600);
+  },[saveDoc]);
+
+  /* all'apertura dell'app butto via quello che nel cestino ha passato i 30 giorni */
+  useEffect(()=>{
+    if(!pronto) return;
+    const limite = Date.now() - GIORNI_CESTINO*86400000;
+    const vecchio = t => { const n = new Date(t).getTime(); return !isNaN(n) && n < limite; };
+    const scaduti = Object.values(documenti).filter(d=>d.cestinato && vecchio(d.cestinato));
+    scaduti.forEach(d=>eliminaDavvero(d.id));
+    Object.values(sezioni).forEach(x=>{ if(x.cestinata && vecchio(x.cestinata)) saveSez(x.id, null); });
+  },[pronto,documenti,sezioni,eliminaDavvero,saveSez]);
+
+  const cestinaDoc = (id) => {
+    const d = documenti[id]; if(!d || d.cestinato) return;
+    saveDoc(id, {...d, cestinato: nowISO(), archiviato: null, aggiornato: nowISO()});
+  };
+  const archiviaDoc = (id, si) => {
+    const d = documenti[id]; if(!d) return;
+    saveDoc(id, {...d, archiviato: si ? nowISO() : null, aggiornato: nowISO()});
+  };
+  /* riportando su un documento risalgo anche le sezioni che erano finite nel cestino con lui */
+  const ripristinaSezione = (sid) => {
+    const visti = {};
+    let x = sezioni[sid];
+    while(x && !visti[x.id]){
+      visti[x.id] = true;
+      if(x.cestinata) saveSez(x.id, {...x, cestinata: null});
+      x = x.parentId ? sezioni[x.parentId] : null;
+    }
+  };
+  const ripristinaDoc = (id) => {
+    const d = documenti[id]; if(!d) return;
+    let sid = d.sezioneId;
+    if(!sezioni[sid]){
+      const prima = Object.values(sezioni).find(x=>!x.cestinata);
+      sid = prima ? prima.id : sid;                 // la sezione non c'è più: lo metto nella prima
+    } else ripristinaSezione(sid);
+    saveDoc(id, {...d, sezioneId: sid, cestinato: null, archiviato: null, aggiornato: nowISO()});
+  };
+  const svuotaCestino = () => {
+    const dentro = Object.values(documenti).filter(d=>d.cestinato);
+    const sez = Object.values(sezioni).filter(x=>x.cestinata);
+    if(!dentro.length && !sez.length){ alert('Il cestino è già vuoto.'); return; }
+    if(!confirm(`Eliminare per sempre ${dentro.length} document${dentro.length===1?'o':'i'}? Non si torna indietro.`)) return;
+    dentro.forEach(d=>eliminaDavvero(d.id));
+    sez.forEach(x=>saveSez(x.id, null));
+    setSelDoc(null);
+  };
+
   const doc = selDoc ? documenti[selDoc] : null;
   const sezCorrente = doc ? sezioni[doc.sezioneId] : (selSez!=='ATTIVITA'? sezioni[selSez] : null);
 
@@ -3888,7 +3977,8 @@ function App(){
 
   const creaDoc = (tipo,tpl,titolo) => {
     // se ho premuto ＋ su una cartella, il documento nasce lì
-    const sid = cartella || ((selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO') ? selSez : (sezList[0]&&sezList[0].id));
+    const sid = cartella || ((selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && selSez!=='CESTINO' && selSez!=='ARCHIVIO')
+      ? selSez : (sezList[0]&&sezList[0].id));
     if(!sid){ alert('Crea prima una sezione.'); return; }
     const d = emptyDoc(sid, tipo, tpl);
     d.titolo = titolo || '';
@@ -3898,13 +3988,21 @@ function App(){
 
   const eliminaDoc = () => {
     if(!doc) return;
-    if(confirm(`Eliminare "${doc.titolo||'documento senza titolo'}"?`)){ saveDoc(doc.id,null); setSelDoc(null); }
+    const nome = doc.titolo || 'documento senza titolo';
+    if(doc.cestinato){
+      if(confirm(`Eliminare "${nome}" per sempre? Non si torna indietro.`)){ eliminaDavvero(doc.id); setSelDoc(null); }
+      return;
+    }
+    if(confirm(`Mettere "${nome}" nel cestino? Resta lì ${GIORNI_CESTINO} giorni, poi sparisce da solo.`)){
+      cestinaDoc(doc.id); setSelDoc(null);
+    }
   };
 
   const duplicaDoc = () => {
     if(!doc) return;
     const d = {...JSON.parse(JSON.stringify(doc)), id:uid(), titolo:(doc.titolo||'Documento')+' (copia)',
-      creato:nowISO(), aggiornato:nowISO(), data: today(), stato:'da preparare'};
+      creato:nowISO(), aggiornato:nowISO(), data: today(), stato:'da preparare',
+      cestinato:null, archiviato:null};
     (d.azioni||[]).forEach(a=>{a.fatto=false;});
     saveDoc(d.id,d); setSelDoc(d.id);
   };
@@ -4018,6 +4116,18 @@ function App(){
       );
     }
 
+    if(!doc && (selSez==='CESTINO' || selSez==='ARCHIVIO')){
+      const cest = selSez==='CESTINO';
+      return (
+        <div className="empty" style={{paddingTop:'20vh'}}>
+          <strong>{cest? 'Cestino' : 'Archivio'}</strong>
+          {cest
+            ? `Quello che elimini resta qui ${GIORNI_CESTINO} giorni: aprilo per ripristinarlo, o eliminalo subito per sempre. Lo spazio si libera solo quando sparisce davvero.`
+            : 'Documenti messi da parte: non compaiono negli elenchi, nella ricerca, nelle attività aperte né nei conteggi. Aprine uno per rimetterlo a posto.'}
+        </div>
+      );
+    }
+
     if(!doc) return (
       <div className="empty" style={{paddingTop:'22vh'}}>
         <strong>Nessun documento aperto</strong>
@@ -4047,7 +4157,11 @@ function App(){
             setPdfBusy(false);
           }}>{pdfBusy ? 'PDF…' : 'PDF'}</button>
           <button className="btn ghost sm hide-mobile" onClick={duplicaDoc} title="Duplica come nuovo">Duplica</button>
-          <button className="btn ghost sm danger hide-mobile" onClick={eliminaDoc}>Elimina</button>
+          {!doc.cestinato && <button className="btn ghost sm hide-mobile" onClick={()=>archiviaDoc(doc.id, !doc.archiviato)}
+            title={doc.archiviato? 'Rimettilo negli elenchi' : 'Mettilo da parte senza eliminarlo'}>
+            {doc.archiviato? 'Disarchivia' : 'Archivia'}</button>}
+          <button className="btn ghost sm danger hide-mobile" onClick={eliminaDoc}>
+            {doc.cestinato? 'Elimina per sempre' : 'Elimina'}</button>
           <div className="doc-menu" onClick={e=>e.stopPropagation()}>
             <button className="btn ghost sm" onClick={e=>{e.stopPropagation(); setMenuOpen(o=>!o);}} title="Altro">⋯</button>
             {menuOpen && (
@@ -4055,13 +4169,33 @@ function App(){
                 <button onClick={()=>{setMenuOpen(false); setModalStorico(true);}}>Versioni precedenti…</button>
                 <button onClick={()=>{setMenuOpen(false); setModalFmt(true);}}>Formato export…</button>
                 <button onClick={()=>{setMenuOpen(false); duplicaDoc();}}>Duplica</button>
-                <button className="danger" onClick={()=>{setMenuOpen(false); eliminaDoc();}}>Elimina</button>
+                {doc.cestinato
+                  ? <button onClick={()=>{setMenuOpen(false); ripristinaDoc(doc.id);}}>Ripristina</button>
+                  : <button onClick={()=>{setMenuOpen(false); archiviaDoc(doc.id, !doc.archiviato);}}>
+                      {doc.archiviato? 'Togli dall\'archivio' : 'Archivia'}</button>}
+                <button className="danger" onClick={()=>{setMenuOpen(false); eliminaDoc();}}>
+                  {doc.cestinato? 'Elimina per sempre' : 'Elimina'}</button>
               </div>
             )}
           </div>
         </div>
 
         <div className="doc">
+          {doc.cestinato && (
+            <div className="banner-doc cest">
+              <span>🗑 <b>Nel cestino</b> — si elimina da solo fra {giorniCestino(doc.cestinato)} giorni.</span>
+              <span className="spacer"></span>
+              <button className="btn sm" onClick={()=>ripristinaDoc(doc.id)}>Ripristina</button>
+              <button className="btn sm danger" onClick={eliminaDoc}>Elimina per sempre</button>
+            </div>
+          )}
+          {!doc.cestinato && doc.archiviato && (
+            <div className="banner-doc arch">
+              <span>📦 <b>Archiviato</b> — resta fuori dagli elenchi, dalla ricerca e dai conteggi.</span>
+              <span className="spacer"></span>
+              <button className="btn sm" onClick={()=>archiviaDoc(doc.id, false)}>Togli dall'archivio</button>
+            </div>
+          )}
           <input className="title-in" value={doc.titolo} placeholder="Titolo del documento"
             onChange={e=>patchDoc({titolo:e.target.value})}/>
 
@@ -4291,6 +4425,16 @@ function App(){
               <span className="name">Attività aperte</span>
               <span className="n">{azioniAperte.length||''}</span>
             </button>
+            <button className={'nav-item'+(selSez==='ARCHIVIO'?' on':'')} onClick={()=>{setSelSez('ARCHIVIO');setSelDoc(null);setQ('');setMobileView('nav');}}>
+              <span className="chip" style={{background:'#5b7a8c'}}></span>
+              <span className="name">Archivio</span>
+              <span className="n">{nArchivio||''}</span>
+            </button>
+            <button className={'nav-item'+(selSez==='CESTINO'?' on':'')} onClick={()=>{setSelSez('CESTINO');setSelDoc(null);setQ('');setMobileView('nav');}}>
+              <span className="chip" style={{background:'#b9c4bd'}}></span>
+              <span className="name">Cestino</span>
+              <span className="n">{nCestino||''}</span>
+            </button>
             <button className={'nav-item'+(selSez==='SPAZIO'?' on':'')} onClick={()=>{setSelSez('SPAZIO');setSelDoc(null);setQ('');setMobileView('doc');}}>
               <span className="chip" style={{background:'var(--muted)'}}></span>
               <span className="name">Spazio</span>
@@ -4326,10 +4470,13 @@ function App(){
       <div className={'col-list'+mobileHide('list')}>
         <div className="list-head">
           <h2>{q.trim()? 'Risultati' : selSez==='ATTIVITA'? 'Attività' : selSez==='SPAZIO'? 'Spazio'
+             : selSez==='CESTINO'? 'Cestino' : selSez==='ARCHIVIO'? 'Archivio'
              : (sezCorrente? sezCorrente.nome : 'Documenti')}</h2>
           <p>{q.trim()? `${docList.length} documenti trovati`
              : selSez==='SPAZIO' ? 'Occupazione del database'
              : selSez==='ATTIVITA' ? 'Vista trasversale'
+             : selSez==='CESTINO' ? `${docList.length} document${docList.length===1?'o':'i'} · si eliminano da soli dopo ${GIORNI_CESTINO} giorni`
+             : selSez==='ARCHIVIO' ? `${docList.length} document${docList.length===1?'o':'i'} messi da parte`
              : (sezCorrente&&sezCorrente.descrizione) || `${docList.length} documenti`}</p>
           <input className="search" value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca in tutto il quaderno…"/>
         </div>
@@ -4341,6 +4488,16 @@ function App(){
             <button className="btn ghost sm" onClick={()=>{setSelMulti(false); setScelti([]);}}>Annulla</button>
           </div>
         )}
+        {selSez==='CESTINO' ? (
+          <div className="new-row">
+            <span className="spazio-sub" style={{flex:1}}>Qui i documenti si recuperano per {GIORNI_CESTINO} giorni.</span>
+            <button className="btn sm danger" disabled={!docList.length} onClick={svuotaCestino}>Svuota il cestino</button>
+          </div>
+        ) : selSez==='ARCHIVIO' ? (
+          <div className="new-row">
+            <span className="spazio-sub" style={{flex:1}}>Documenti messi da parte: restano fuori da elenchi, ricerca e conteggi.</span>
+          </div>
+        ) : (
         <div className="new-row">
           <button className="btn primary sm" style={{flex:1}} onClick={()=>setModalNew(true)}>+ Nuovo documento</button>
           <button className={'btn sm'+(selMulti?' primary':'')} title="Scegli più documenti da spostare"
@@ -4348,10 +4505,11 @@ function App(){
           <button className="btn sm" onClick={()=>esportaSezione('word')} title="Esporta l'elenco in Word">Word</button>
           <button className="btn sm" disabled={pdfBusy} onClick={()=>esportaSezione('pdf')} title="Esporta l'elenco in PDF">{pdfBusy?'PDF…':'PDF'}</button>
         </div>
+        )}
         <div className="list">
-          {!q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && figlieDi(selSez).map(f=>{
+          {!q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && selSez!=='CESTINO' && selSez!=='ARCHIVIO' && figlieDi(selSez).map(f=>{
             const dentro = Object.values(documenti)
-              .filter(d=>d.sezioneId===f.id)
+              .filter(d=>d.sezioneId===f.id && !d.cestinato && !d.archiviato)
               .sort((a,b)=>((b.data||b.creato||'').localeCompare(a.data||a.creato||'')));
             const espansa = !!aperte[f.id];
             return (
@@ -4416,8 +4574,14 @@ function App(){
           })}
           {docList.length===0 && !figlieDi(selSez||'').length && (
             <div className="empty">
-              <strong>{q.trim()?'Nessun risultato':'Sezione vuota'}</strong>
-              {q.trim()?'Prova con un\'altra parola.':'Crea il primo documento per iniziare.'}
+              <strong>{q.trim()?'Nessun risultato'
+                : selSez==='CESTINO'?'Cestino vuoto'
+                : selSez==='ARCHIVIO'?'Archivio vuoto'
+                : 'Sezione vuota'}</strong>
+              {q.trim()?'Prova con un\'altra parola.'
+                : selSez==='CESTINO'?'Qui finisce quello che elimini, e resta recuperabile per 30 giorni.'
+                : selSez==='ARCHIVIO'?'Archivia un documento dal suo menu per toglierlo dagli elenchi senza perderlo.'
+                : 'Crea il primo documento per iniziare.'}
             </div>
           )}
           {docList.map(d=>{
@@ -4445,15 +4609,21 @@ function App(){
                 <div className="m">
                   {d.data && <span>{fmtDate(d.data)}</span>}
                   {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
-                  {aperte>0 && <span className="tag todo">{aperte} da fare</span>}
-                  {q.trim() && sezioni[d.sezioneId] && <span>{sezioni[d.sezioneId].nome}</span>}
+                  {aperte>0 && !d.cestinato && <span className="tag todo">{aperte} da fare</span>}
+                  {d.cestinato && <span className="tag cest">restano {giorniCestino(d.cestinato)} giorni</span>}
+                  {!d.cestinato && d.archiviato && <span className="tag arch">archiviato</span>}
+                  {(q.trim() || selSez==='CESTINO' || selSez==='ARCHIVIO') && sezioni[d.sezioneId] &&
+                    <span>{sezioni[d.sezioneId].nome}</span>}
                 </div>
+                {(d.cestinato || d.archiviato) &&
+                  <span className="card-az" title="Rimettilo al suo posto"
+                    onClick={e=>{e.stopPropagation(); ripristinaDoc(d.id);}}>↩ ripristina</span>}
                 <span className="card-menu" title="Sposta"
                   onClick={e=>{e.stopPropagation(); setModalSposta({ids:[d.id]});}}>⋯</span>
               </button>
             );
           })}
-          {!cartella && !q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && (
+          {!cartella && !q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && selSez!=='CESTINO' && selSez!=='ARCHIVIO' && (
             <button className="riga-cart nuova" onClick={()=>setModalSez({sezione:null, parent:selSez})}>
               <span className="ic">＋</span><span className="t">Nuova cartella</span>
             </button>
@@ -4480,8 +4650,11 @@ function App(){
           onDelete={()=>{
             const sid = modalSez.sezione.id;
             const ids = ramoDi(sid);
-            Object.values(documenti).filter(d=>ids.indexOf(d.sezioneId)>=0).forEach(d=>saveDoc(d.id,null));
-            ids.forEach(x=>saveSez(x,null));
+            const ora = nowISO();
+            Object.values(documenti)
+              .filter(d=>ids.indexOf(d.sezioneId)>=0 && !d.cestinato)
+              .forEach(d=>saveDoc(d.id,{...d, cestinato: ora, aggiornato: ora}));
+            ids.forEach(x=>{ const sez = sezioni[x]; if(sez) saveSez(x, {...sez, cestinata: ora}); });
             setModalSez(null);
             if(ids.indexOf(selSez)>=0){ setSelSez(null); setSelDoc(null); }
           }}/>
