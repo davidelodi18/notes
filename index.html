@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "9 set · cartelle aperte";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "17 set · formule, spunte, pennello";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -349,6 +349,26 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button.del:hover{background:var(--red);color:#fff}
 .peso{font-size:12px;color:var(--amber);padding:6px 0}
 
+/* ── caselle di spunta nel testo ─────────────────────── */
+.rt ul.cklist{list-style:none;padding-left:2px;margin:10px 0}
+.rt ul.cklist li{position:relative;padding-left:28px;margin:5px 0}
+.rt ul.cklist li::before{content:'\2610';position:absolute;left:0;top:0;width:22px;font-family:var(--sans);
+  font-size:17px;line-height:1.55;color:var(--muted);cursor:pointer}
+.rt ul.cklist li:hover::before{color:var(--accent)}
+.rt ul.cklist li.fatto::before{content:'\2611';color:var(--accent)}
+.rt ul.cklist li.fatto{color:var(--muted);text-decoration:line-through}
+/* ── celle con formula ───────────────────────────────── */
+.rt table td[data-f],.rt table th[data-f]{
+  background-image:linear-gradient(225deg,rgba(47,111,78,.55) 6px,transparent 6px)}
+.rt-ctx .formula{font-family:var(--sans);font-size:11.5px;color:#255840;background:var(--accent-soft);
+  border-radius:4px;padding:3px 8px;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ── cose da fare, corpo e carattere ─────────────────── */
+.nav-item .n.todo,.riga-cart .q.todo{background:var(--amber-soft);color:var(--amber);border-radius:20px;
+  padding:1px 7px;font-size:11px;margin-left:3px;font-variant-numeric:tabular-nums}
+.rt-tools select.mini{border:1px solid var(--line);background:var(--paper);border-radius:4px;
+  padding:2px 3px;font-size:12px;color:var(--ink-soft);max-width:112px;height:27px;align-self:center;
+  margin:0 1px}
+
 /* cruscotto spazio */
 .spazio-hero{border:1px solid var(--line);border-radius:8px;padding:20px;margin:18px 0 22px;background:#fbfcfb}
 .spazio-num{font-family:var(--serif);font-size:34px;line-height:1;letter-spacing:-.02em}
@@ -495,7 +515,11 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7
 const nowISO = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0,10);
 
-const COLORS = ['#2f6f4e','#2b5d80','#8a4a6b','#a86a1f','#5c5470','#3d7068','#8c4a3f','#4a5d23'];
+const COLORS = [
+  '#2f6f4e','#3d7068','#4f7d3a','#4a5d23','#6b8f2e',
+  '#2b5d80','#1f4f77','#2f7d75','#5b7a8c','#3a6ea5',
+  '#8a4a6b','#7a3b52','#a33c34','#8c4a3f','#c0603a',
+  '#a86a1f','#b08300','#5c5470','#7d5ba6','#17211d'];
 /* versione slavata di un colore, per lo sfondo delle righe */
 const tinta = (hex, a) => {
   const h = (hex||'#2f6f4e').replace('#','');
@@ -569,7 +593,25 @@ function azioniHtml(azioni){
 
 /* ═══════════ generazione HTML per export ═══════════ */
 /* negli export i gruppi si mostrano sempre per intero */
-const apriGruppi = h => String(h||'').replace(/class="grp chiuso"/g, 'class="grp"').replace(/\bgrp chiuso\b/g, 'grp');
+const apriGruppi = h => {
+  let t = String(h||'').replace(/class="grp chiuso"/g, 'class="grp"').replace(/\bgrp chiuso\b/g, 'grp');
+  // negli export le caselle diventano simboli veri, così si vedono anche in Word
+  t = t.replace(/<li([^>]*class="[^"]*\bck\b[^"]*")([^>]*)>/gi,
+    (tutto, a, b) => `<li${a}${b}>${/\bfatto\b/.test(a) ? '\u2611' : '\u2610'}&nbsp;`);
+  return t;
+};
+/* caselle di spunta ancora da fare dentro il testo di un documento */
+const contaSpunte = html => {
+  if(!html || html.indexOf('cklist') < 0) return 0;
+  const voci = html.match(/<li[^>]*class="[^"]*\bck\b[^"]*"[^>]*>/gi) || [];
+  return voci.filter(t => !/\bfatto\b/.test(t)).length;
+};
+/* cose ancora da fare in un documento: attività aperte + caselle non spuntate */
+const daFare = d => {
+  if(!d) return 0;
+  const az = (d.azioni||[]).filter(a => !a.macro && !a.fatto && (a.testo||'').trim()).length;
+  return az + contaSpunte(d.corpo);
+};
 
 function docToHtml(doc, sezione){
   const e = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -653,6 +695,8 @@ ol,ul{padding-left:16pt;margin:5pt 0}
 ul ul{list-style-type:circle} ul ul ul{list-style-type:square}
 ol ol{list-style-type:lower-alpha} ol ol ol{list-style-type:lower-roman}
 li{margin:3pt 0}
+ul.cklist{list-style:none;padding-left:6pt}
+ul.cklist li{margin:3pt 0}
 .note{font-size:${r(0.92)}pt;color:#41504a;margin:3pt 0 5pt}
 blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#41504a;font-style:italic}
 .grp{margin:0}
@@ -701,6 +745,7 @@ function pdfDomCss(o){
 .pdfdoc ul ul{list-style-type:circle} .pdfdoc ul ul ul{list-style-type:square}
 .pdfdoc ol ol{list-style-type:lower-alpha} .pdfdoc ol ol ol{list-style-type:lower-roman}
 .pdfdoc li{margin:5px 0}
+.pdfdoc ul.cklist{list-style:none;padding-left:8px}
 .pdfdoc .note{font-size:${r(0.92)}px;color:#41504a;margin:3px 0 7px}
 .pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:9px 0;padding-left:13px;color:#41504a;font-style:italic}
 .pdfdoc img{max-width:100%;height:auto}
@@ -876,15 +921,29 @@ const LIMITE_DB = 1073741824;   // 1 GB, piano gratuito Spark
 
 /* ═══════════ editor rich text ═══════════ */
 const COLORI_TESTO = [
-  {n:'Nero',    v:'#17211d'}, {n:'Grigio',  v:'#6b7a72'},
-  {n:'Rosso',   v:'#a33c34'}, {n:'Arancio', v:'#a86a1f'},
-  {n:'Verde',   v:'#2f6f4e'}, {n:'Blu',     v:'#2b5d80'},
-  {n:'Viola',   v:'#6b4a7a'}, {n:'Bordeaux',v:'#7a3b52'}
+  {n:'Nero',    v:'#17211d'}, {n:'Bianco',  v:'#ffffff'},
+  {n:'Grigio',  v:'#6b7a72'}, {n:'Rosso',   v:'#a33c34'},
+  {n:'Arancio', v:'#a86a1f'}, {n:'Verde',   v:'#2f6f4e'},
+  {n:'Blu',     v:'#2b5d80'}, {n:'Viola',   v:'#6b4a7a'}
 ];
 const COLORI_EVID = [
+  {n:'Bianco', v:'#ffffff'}, {n:'Nero',   v:'#17211d'},
   {n:'Giallo', v:'#fcf3b0'}, {n:'Verde',  v:'#d6f0dd'},
   {n:'Azzurro',v:'#d6e8f5'}, {n:'Rosa',   v:'#fadde3'},
   {n:'Arancio',v:'#fbe3c7'}, {n:'Grigio', v:'#e6eae7'}
+];
+/* corpo del carattere e famiglie disponibili nella barra */
+const CORPI = [5,6,7,8,9,10,11,12,13,14,16,18,20,24,28,32,40,48,60,72];
+const FAMIGLIE = [
+  {n:'Predefinito',        v:''},
+  {n:'Newsreader (grazie)',v:"'Newsreader',Georgia,serif"},
+  {n:'Inter (bastone)',    v:"'Inter',-apple-system,sans-serif"},
+  {n:'Georgia',            v:"Georgia,'Times New Roman',serif"},
+  {n:'Times New Roman',    v:"'Times New Roman',Times,serif"},
+  {n:'Arial',              v:"Arial,Helvetica,sans-serif"},
+  {n:'Verdana',            v:"Verdana,Geneva,sans-serif"},
+  {n:'Arial stretto',      v:"'Arial Narrow',Arial,sans-serif"},
+  {n:'Courier (macchina)', v:"'Courier New',Courier,monospace"}
 ];
 const ALLINEAMENTI = [
   {n:'A sinistra', v:'left',    i:'⇤'},
@@ -998,11 +1057,11 @@ function RichText({value, onChange, placeholder, docKey}){
   const colorRef = useRef(null);
   const targetRef = useRef('testo');
   const [recenti,setRecenti] = useState(()=> local.get('quaderno:colori') || []);
-  const [ultimoTesto,setUltimoTesto] = useState(()=> local.get('quaderno:ultimoTesto') || '#a33c34');
+  const [ultimoTesto,setUltimoTesto] = useState(()=> local.get('quaderno:ultimoTesto') || '#17211d');
   const [ultimoEvid,setUltimoEvid] = useState(()=> local.get('quaderno:ultimoEvid') || '#fcf3b0');
   const ricordaTesto = (v) => { setUltimoTesto(v); local.set('quaderno:ultimoTesto', v); };
   const ricordaEvid  = (v) => { setUltimoEvid(v);  local.set('quaderno:ultimoEvid', v); };
-  const [ultimoCella,setUltimoCella] = useState(()=> local.get('quaderno:ultimoCella') || '#e9ede9');
+  const [ultimoCella,setUltimoCella] = useState(()=> local.get('quaderno:ultimoCella') || '#ffffff');
   const ricordaCella = (v) => { setUltimoCella(v); local.set('quaderno:ultimoCella', v); };
   const ricorda = (v) => {
     setRecenti(p=>{
@@ -1022,6 +1081,7 @@ function RichText({value, onChange, placeholder, docKey}){
       setTuttiChiusi(g.length > 0 && g.every(x=>x.classList.contains('chiuso')));
     }, 0);
     setPuoAnnullare(false); setPuoRipetere(false);
+    setTimeout(ricalcolaTutto, 0);
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
   useEffect(()=>{
@@ -1043,7 +1103,16 @@ function RichText({value, onChange, placeholder, docKey}){
     return () => document.removeEventListener('click', h);
   },[pal]);
 
+  /* le voci di un elenco con le caselle devono restare marcate, e una voce nuova nasce da spuntare */
+  const normalizzaSpunte = () => {
+    if(!ref.current) return;
+    Array.from(ref.current.querySelectorAll('ul.cklist > li')).forEach(li=>{
+      li.classList.add('ck');
+      if(li.classList.contains('fatto') && !li.textContent.replace(/\u00a0/g,'').trim()) li.classList.remove('fatto');
+    });
+  };
   const emit = (subito) => {
+    normalizzaSpunte();
     const html = ref.current.innerHTML
       .replace(/ contenteditable="(?:true|false)"/g, '')
       .replace(/ class="cella-sel cella-attiva"/g, '')
@@ -1189,6 +1258,34 @@ function RichText({value, onChange, placeholder, docKey}){
     return lista;
   };
 
+  /* blocchi interi toccati dalla selezione: un elenco vale come un blocco solo,
+     così raggruppare funziona anche con elenchi e testi lunghi */
+  const blocchiDiPrimoLivello = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return [];
+    const r = sel.getRangeAt(0);
+    if(!ref.current || !ref.current.contains(r.commonAncestorContainer)) return [];
+    let cont = r.commonAncestorContainer;
+    if(cont.nodeType === 3) cont = cont.parentElement;
+    cont = (cont.closest && cont.closest('.grp-c, td, th')) || ref.current;
+    if(!ref.current.contains(cont)) cont = ref.current;
+    let dentro = Array.from(cont.children).filter(el=>{
+      if(el.nodeType !== 1) return false;
+      try{ return r.intersectsNode(el); }catch(err){ return false; }
+    });
+    // l'ultimo blocco sfiorato senza prendere nemmeno un carattere non fa parte della selezione
+    if(!sel.isCollapsed && dentro.length > 1){
+      const ultimo = dentro[dentro.length-1];
+      try{
+        const dd = document.createRange();
+        dd.selectNodeContents(ultimo);
+        if(dd.compareBoundaryPoints(Range.START_TO_END, r) >= 0) dd.setEnd(r.endContainer, r.endOffset);
+        if(!dd.toString().replace(/\u00a0/g,'').trim()) dentro = dentro.slice(0, -1);
+      }catch(err){}
+    }
+    return dentro;
+  };
+
   /* raggruppa i blocchi selezionati: il primo diventa il titolo, gli altri il contenuto pieghevole */
   const dentroGruppo = () => {
     const sel = window.getSelection();
@@ -1197,10 +1294,41 @@ function RichText({value, onChange, placeholder, docKey}){
     return (n && ref.current.contains(n)) ? n.closest('.grp') : null;
   };
   const raggruppa = () => {
-    let bl = blocchiSelezionati().filter(el=>
+    let bl = blocchiDiPrimoLivello().filter(el=>
       el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c') && el.tagName !== 'TD' && el.tagName !== 'TH');
+    if(!bl.length){
+      // ripiego sul vecchio metodo, quando non riesco a capire dove sta la selezione
+      bl = blocchiSelezionati().filter(el=>
+        el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c') && el.tagName !== 'TD' && el.tagName !== 'TH');
+    }
     // tolgo i blocchi già contenuti in altri della lista, per non annidare
     bl = bl.filter(el => !bl.some(altro => altro !== el && altro.contains(el)));
+
+    /* ho preso un elenco (o una citazione) da solo: il titolo è la riga che sta sopra.
+       È il caso che prima non funzionava, con gli elenchi e i testi lunghi. */
+    const eVuoto = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
+    if(bl.length === 1 && /^(UL|OL|BLOCKQUOTE|PRE)$/.test(bl[0].tagName)){
+      const corpo = bl[0];
+      let prima = corpo.previousElementSibling;
+      const daTogliere = [];
+      while(prima && eVuoto(prima) && !prima.classList.contains('grp')){
+        daTogliere.push(prima);
+        prima = prima.previousElementSibling;
+      }
+      const titoloValido = prima && !prima.classList.contains('grp') && prima.tagName !== 'TABLE' && !eVuoto(prima);
+      const grp = document.createElement('div'); grp.className = 'grp';
+      const tit = document.createElement('div'); tit.className = 'grp-t';
+      const cnt = document.createElement('div'); cnt.className = 'grp-c';
+      tit.innerHTML = titoloValido ? prima.innerHTML : 'Elenco';
+      corpo.parentNode.insertBefore(grp, corpo);
+      grp.appendChild(tit);
+      cnt.appendChild(corpo);
+      grp.appendChild(cnt);
+      daTogliere.forEach(el=>el.remove());
+      if(titoloValido) prima.remove();
+      emit(true);
+      return;
+    }
 
     // ho selezionato solo l'intestazione e subito sotto c'è una tabella: la includo da sola,
     // senza toccare quello che viene dopo (a meno che non sia stato selezionato anch'esso)
@@ -1395,6 +1523,57 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(); setPal(null); ref.current.focus();
   };
 
+  /* corpo del carattere: vale sulle celle scelte, sul testo selezionato o sul paragrafo */
+  const setCorpo = (px) => {
+    if(!px) return;
+    const st = {fontSize: px + 'px'};
+    if(applicaStileCelle(st)) return;
+    ref.current.focus(); ripristinaRange();
+    if(applicaStileTesto(st)) return;
+    const bl = blocchiSelezionati();
+    if(!bl.length) return;
+    bl.forEach(el=>{ if(el.style) el.style.fontSize = px + 'px'; });
+    emit(true);
+  };
+  const setFamiglia = (v) => {
+    const st = {fontFamily: v};
+    if(applicaStileCelle(st)) return;
+    ref.current.focus(); ripristinaRange();
+    if(v && applicaStileTesto(st)) return;
+    const bl = blocchiSelezionati();
+    if(!bl.length) return;
+    bl.forEach(el=>{
+      if(!el.style) return;
+      if(v) el.style.fontFamily = v; else el.style.removeProperty('font-family');
+    });
+    emit(true);
+  };
+
+  /* elenco con le caselle da spuntare: si accende e si spegne sullo stesso elenco */
+  const elencoSpunte = () => {
+    ref.current.focus(); ripristinaRange();
+    let lista = listaCorrente();
+    if(lista && lista.classList.contains('cklist')){
+      lista.classList.remove('cklist');
+      Array.from(lista.children).forEach(li=>li.classList.remove('ck','fatto'));
+      emit(true); return;
+    }
+    if(!lista){
+      document.execCommand('insertUnorderedList');
+      lista = listaCorrente();
+    }
+    if(!lista){ alert('Non sono riuscito a creare l\'elenco: metti il cursore su una riga di testo.'); return; }
+    lista.classList.add('cklist');
+    Array.from(lista.children).forEach(li=>li.classList.add('ck'));
+    emit(true);
+  };
+  const spuntaTutte = (valore) => {
+    const voci = ref.current ? Array.from(ref.current.querySelectorAll('ul.cklist > li')) : [];
+    if(!voci.length){ alert('In questo documento non ci sono caselle da spuntare.'); return; }
+    voci.forEach(li=>li.classList.toggle('fatto', valore));
+    emit(true);
+  };
+
   /* Tab dentro un elenco: rientra di un livello, Maiusc+Tab torna indietro */
   const rientroElenco = (e) => {
     if(e.key !== 'Tab') return false;
@@ -1492,6 +1671,145 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const cellaIn = (gr, r, c) => (gr.g[r] && gr.g[r][c]) || null;
 
+  /* ═══ formule stile foglio di calcolo ═══
+     La formula sta nell'attributo data-f della cella, nel testo c'è il risultato.
+     Le colonne si chiamano A, B, C… e le righe 1, 2, 3… partendo dall'intestazione. */
+  const colLettera = (c) => { let s=''; c++; while(c>0){ const m=(c-1)%26; s=String.fromCharCode(65+m)+s; c=Math.floor((c-1)/26); } return s; };
+  const numColonna = (l) => { let n=0; for(const ch of String(l).toUpperCase()) n = n*26 + (ch.charCodeAt(0)-64); return n-1; };
+  const valoreDi = (td) => { if(!td) return 0; const n = leggiNumero(td.textContent); return n === null ? 0 : n; };
+  const FUNZIONI = {
+    SUM:   (...a)=>a.flat().reduce((s,x)=>s+(+x||0),0),
+    AVG:   (...a)=>{ const l=a.flat().map(Number).filter(x=>!isNaN(x)); return l.length? l.reduce((s,x)=>s+x,0)/l.length : 0; },
+    MIN:   (...a)=>{ const l=a.flat().map(Number).filter(x=>!isNaN(x)); return l.length? Math.min(...l) : 0; },
+    MAX:   (...a)=>{ const l=a.flat().map(Number).filter(x=>!isNaN(x)); return l.length? Math.max(...l) : 0; },
+    COUNT: (...a)=>a.flat().filter(x=>x!=='' && x!==null && !isNaN(+x)).length,
+    ROUND: (x,n)=>{ const p=Math.pow(10, n||0); return Math.round((+x)*p)/p; },
+    ABS:   (x)=>Math.abs(+x),
+    PROD:  (...a)=>a.flat().reduce((s,x)=>s*(+x||0),1),
+    IF:    (c,a,b)=>c ? a : (b===undefined ? '' : b)
+  };
+  const NOMI_FUNZIONI = [['CONTA.NUMERI','COUNT'],['CONTA','COUNT'],['COUNT','COUNT'],['SOMMA','SUM'],['SUM','SUM'],
+    ['MEDIA','AVG'],['AVERAGE','AVG'],['MIN','MIN'],['MAX','MAX'],['ARROTONDA','ROUND'],['ROUND','ROUND'],
+    ['ASS','ABS'],['ABS','ABS'],['PRODOTTO','PROD'],['PRODUCT','PROD'],['SE','IF'],['IF','IF']];
+  /* è una formula? "=…" sempre, "+…" solo se dentro ci sono riferimenti o operatori (così i numeri di telefono restano tali) */
+  const paFormula = (t) => {
+    const x = String(t||'').trim();
+    if(!x) return false;
+    if(x[0] === '=') return x.length > 1;
+    if(x[0] !== '+') return false;
+    const resto = x.slice(1);
+    return /^[\dA-Za-z().,:;+\-*\/%\s]+$/.test(resto) && /[A-Za-z]\d|[+\-*\/]/.test(resto);
+  };
+  const calcolaFormula = (testo, gr) => {
+    let f = String(testo||'').replace(/\u00a0/g,' ').trim();
+    if(!f) return null;
+    if(f[0] === '=') f = f.slice(1);
+    if(!f.trim()) return null;
+    f = f.replace(/(\d)\s*,\s*(\d)/g, '$1.$2');    // 1,5 → 1.5
+    f = f.replace(/;/g, ',');                       // il punto e virgola separa gli argomenti
+    f = f.replace(/(\d+(?:\.\d+)?)\s*%/g, '($1/100)');
+    NOMI_FUNZIONI.forEach(([it,js])=>{
+      f = f.replace(new RegExp(it.replace('.','\\.') + '\\s*\\(', 'gi'), js+'(');
+    });
+    // intervalli A1:B4
+    f = f.replace(/\b([A-Za-z]{1,2})(\d{1,4})\s*:\s*([A-Za-z]{1,2})(\d{1,4})\b/g, (t,c1,r1,c2,r2)=>{
+      const ra = parseInt(r1,10)-1, rb = parseInt(r2,10)-1;
+      const ca = numColonna(c1), cb = numColonna(c2);
+      const vals = [];
+      for(let r=Math.min(ra,rb); r<=Math.max(ra,rb); r++)
+        for(let c=Math.min(ca,cb); c<=Math.max(ca,cb); c++) vals.push(valoreDi(cellaIn(gr, r, c)));
+      return '[' + (vals.length ? vals.join(',') : '0') + ']';
+    });
+    // riferimenti singoli A1
+    f = f.replace(/\b([A-Za-z]{1,2})(\d{1,4})\b/g, (t,c1,r1)=>{
+      const td = cellaIn(gr, parseInt(r1,10)-1, numColonna(c1));
+      return td ? String(valoreDi(td)) : '0';
+    });
+    f = f.replace(/([^<>!=])=([^=])/g, '$1==$2');    // in SE() il solo = è un confronto
+    if(!/^[-+*\/%().,<>=!&|\d\s\[\]A-Za-z_"']*$/.test(f)) return null;
+    try{
+      const v = (new Function('F', 'with(F){ return (' + f + '); }'))(FUNZIONI);
+      if(typeof v === 'number' && isFinite(v)) return v;
+      if(typeof v === 'string' || typeof v === 'boolean') return String(v);
+      return null;
+    }catch(err){ return null; }
+  };
+  const mostraRisultato = (td, v) => {
+    if(v === null){ td.textContent = '#ERRORE'; return; }
+    if(typeof v === 'number') td.textContent = scriviNumero(v, Number.isInteger(v) ? 0 : 2, 'punto', false);
+    else td.textContent = String(v);
+  };
+  const ricalcolaTab = (tab) => {
+    if(!tab) return false;
+    const celle = Array.from(tab.querySelectorAll('td[data-f],th[data-f]'));
+    if(!celle.length) return false;
+    for(let giro=0; giro<3; giro++){          // qualche giro, così le formule che si richiamano si assestano
+      const gr = grigliaDi(tab);
+      celle.forEach(td=>{ if(td.isConnected) mostraRisultato(td, calcolaFormula(td.getAttribute('data-f'), gr)); });
+    }
+    return true;
+  };
+  const ricalcolaTutto = () => {
+    if(!ref.current) return;
+    // rete di sicurezza: una cella che contiene una formula scritta ma non registrata torna viva
+    Array.from(ref.current.querySelectorAll('td,th')).forEach(td=>{
+      const t = (td.textContent||'').trim();
+      if(!td.hasAttribute('data-f') && t[0] === '=' && paFormula(t)) td.setAttribute('data-f', t);
+    });
+    Array.from(ref.current.querySelectorAll('table')).forEach(t=>ricalcolaTab(t));
+  };
+  /* la cella che sto scrivendo: mentre è aperta mostra la formula, quando la chiudo mostra il risultato */
+  const inModifica = useRef(null);
+  const chiudiModifica = () => {
+    const td = inModifica.current;
+    inModifica.current = null;
+    if(!td || !td.isConnected) return;
+    const testo = (td.textContent||'').replace(/\u00a0/g,' ').trim();
+    const prima = td.getAttribute('data-f') || '';
+    if(paFormula(testo)) td.setAttribute('data-f', testo);
+    else if(td.hasAttribute('data-f')) td.removeAttribute('data-f');
+    const tab = td.closest('table');
+    if(tab && (ricalcolaTab(tab) || prima)) emit(true);
+  };
+  /* somma automatica: Σ sulle celle scelte */
+  const sommaAuto = () => {
+    const celle = celleCoinvolte();
+    if(!celle.length){ alert('Scegli prima una o più celle.'); return; }
+    const tab = celle[0].closest('table');
+    if(!tab) return;
+    const gr = grigliaDi(tab);
+    const pos = celle.map(td=>gr.dove.get(td)).filter(Boolean);
+    if(!pos.length) return;
+    const r0=Math.min(...pos.map(p=>p.r)), r1=Math.max(...pos.map(p=>p.r));
+    const c0=Math.min(...pos.map(p=>p.c)), c1=Math.max(...pos.map(p=>p.c));
+    if(celle.length === 1){
+      let r = r0-1, primo = null;
+      while(r >= 0){
+        const td = cellaIn(gr, r, c0);
+        if(!td || leggiNumero(td.textContent) === null) break;
+        primo = r; r--;
+      }
+      if(primo === null){ alert('Sopra questa cella non ho trovato numeri da sommare.'); return; }
+      celle[0].setAttribute('data-f', '=SOMMA(' + colLettera(c0) + (primo+1) + ':' + colLettera(c0) + r0 + ')');
+      ricalcolaTab(tab); emit(true); return;
+    }
+    let fatte = 0;
+    for(let c=c0; c<=c1; c++){
+      const dest = cellaIn(gr, r1+1, c);
+      if(!dest || dest.hasAttribute('data-f')) continue;
+      dest.setAttribute('data-f', '=SOMMA(' + colLettera(c) + (r0+1) + ':' + colLettera(c) + (r1+1) + ')');
+      fatte++;
+    }
+    if(!fatte){ alert('Per i totali serve una riga libera sotto alle celle scelte.'); return; }
+    ricalcolaTab(tab); emit(true);
+  };
+  const togliFormula = () => {
+    const celle = celleCoinvolte().filter(td=>td.hasAttribute('data-f'));
+    if(!celle.length){ alert('In queste celle non ci sono formule.'); return; }
+    celle.forEach(td=>td.removeAttribute('data-f'));
+    emit(true);
+  };
+
   /* rettangolo di celle tra due estremi, per Maiusc+clic e Maiusc+frecce */
   const rettangolo = (a, b) => {
     const tab = a.closest('table');
@@ -1528,6 +1846,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const selezionaCella = (td, opt) => {
+    if(inModifica.current && inModifica.current !== td) chiudiModifica();
     const o = opt || {};
     if(o.aggiungi){
       const i = selRef.current.indexOf(td);
@@ -1575,6 +1894,10 @@ function RichText({value, onChange, placeholder, docKey}){
   const entraInModifica = (td) => {
     const cella = td || cellaCorrente();
     if(!cella) return;
+    if(inModifica.current && inModifica.current !== cella) chiudiModifica();
+    // dentro la cella si scrive la formula, non il risultato
+    if(cella.hasAttribute('data-f')) cella.textContent = cella.getAttribute('data-f');
+    inModifica.current = cella;
     setMulti(false);
     setModo('edit'); applicaModo('edit', cella);
     tuttiTd().forEach(x=>x.classList.remove('cella-sel','cella-attiva'));
@@ -1582,6 +1905,7 @@ function RichText({value, onChange, placeholder, docKey}){
     setTimeout(()=>{ cella.focus(); vaiA(cella); }, 0);
   };
   const tornaInSelezione = () => {
+    chiudiModifica();
     const cella = cellaRef.current;
     setModo('sel'); applicaModo('sel');
     if(cella && cella.isConnected){ selRef.current = [cella]; attivaRef.current = cella; fuocoRef.current = cella; disegnaSel(); posizionaBox(cella); }
@@ -1828,7 +2152,7 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     if(e.key === 'Escape'){
       e.preventDefault();
-      if(fmtTPresoRef.current){ setFmtTPreso(false); return true; }   // prima spengo il pennello
+      if(fmtTPresoRef.current){ spegniPennello(); return true; }   // prima spengo il pennello
       puliscoSel(); setInTable(false); setTblBox(null); return true;
     }
 
@@ -1871,19 +2195,12 @@ function RichText({value, onChange, placeholder, docKey}){
       emit(); return true;
     }
 
-    if((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=')){
-      e.preventDefault();
-      const piu = (e.key === '+' || e.key === '=');
-      if(e.shiftKey){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
-      return true;
-    }
+    if((e.ctrlKey || e.metaKey) && rigaOColonna(e)){ e.preventDefault(); return true; }
     if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){
       e.preventDefault(); e.shiftKey ? ripeti() : annulla(); return true;
     }
-    if(e.altKey && (e.key === 'o' || e.key === 'O')){
-      e.preventDefault();
-      if(fmtTPresoRef.current) setFmtTPreso(false); else copiaFormatoTesto();
-      return true;
+    if(e.altKey && (e.key === 'o' || e.key === 'O' || e.code === 'KeyO')){
+      e.preventDefault(); pennelloDaTasto(); return true;
     }
     if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')){
       e.preventDefault(); copiaFormatoTesto(); return true;
@@ -1917,6 +2234,8 @@ function RichText({value, onChange, placeholder, docKey}){
     /* come in Excel: iniziare a scrivere sostituisce il contenuto */
     if(e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
       e.preventDefault();
+      inModifica.current = null;
+      cell.removeAttribute('data-f');
       cell.innerHTML = '';
       entraInModifica(cell);
       setTimeout(()=>{ document.execCommand('insertText', false, e.key); emit(); }, 10);
@@ -2020,15 +2339,33 @@ function RichText({value, onChange, placeholder, docKey}){
       return false;
     }
 
-    /* Ctrl/Cmd con + e −: righe; aggiungendo Maiusc: colonne */
-    if((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' )){
-      e.preventDefault();
-      const piu = (e.key === '+' || e.key === '=');
-      if(e.shiftKey){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
-      return true;
-    }
+    /* Ctrl/Cmd con + e −: righe; con Maiusc o Alt: colonne */
+    if((e.ctrlKey || e.metaKey) && rigaOColonna(e)){ e.preventDefault(); return true; }
 
     return false;
+  };
+
+  /* Ctrl/Cmd con + e −: riga; con Maiusc (o Alt) colonna.
+     Se la selezione copre tutte le righe di una colonna, il + capisce da solo che vuoi una colonna. */
+  const rigaOColonna = (e) => {
+    const piu  = ['+','=','*'].indexOf(e.key) >= 0 || ['NumpadAdd','Equal','BracketRight'].indexOf(e.code) >= 0;
+    const meno = ['-','_'].indexOf(e.key) >= 0 || ['NumpadSubtract','Minus'].indexOf(e.code) >= 0;
+    if(!piu && !meno) return false;
+    let colonna = e.shiftKey || e.altKey;
+    if(!colonna){
+      const scelte = selRef.current.filter(td=>td.isConnected);
+      const c = cellaAttiva();
+      if(scelte.length > 1 && c){
+        const tab = c.closest('table');
+        if(tab){
+          const gr = grigliaDi(tab);
+          const righe = new Set(scelte.map(td=>(gr.dove.get(td)||{}).r));
+          if(righe.size >= gr.nRighe) colonna = true;      // colonne intere selezionate
+        }
+      }
+    }
+    if(colonna){ piu ? addCol() : delCol(); } else { piu ? addRow() : delRow(); }
+    return true;
   };
 
   const insertTable = () => {
@@ -2111,6 +2448,27 @@ function RichText({value, onChange, placeholder, docKey}){
   const [fmtTPreso,setFmtTPreso] = useState(false);
   const fmtTPresoRef = useRef(false);
   useEffect(()=>{ fmtTPresoRef.current = fmtTPreso; },[fmtTPreso]);
+  /* agganciato = resta acceso per più punti (doppio clic sul pennello, o Alt+O O) */
+  const [fmtSticky,setFmtSticky] = useState(false);
+  const fmtStickyRef = useRef(false);
+  useEffect(()=>{ fmtStickyRef.current = fmtSticky; },[fmtSticky]);
+  const ultimoAltO = useRef(0);
+  const spegniPennello = () => { setFmtTPreso(false); setFmtSticky(false); };
+  const dopoAverApplicato = () => { if(!fmtStickyRef.current) spegniPennello(); };
+  const CHIAVI_CELLA = ['backgroundColor','color','fontWeight','fontStyle','textDecoration','textAlign',
+    'verticalAlign','width','lineHeight','fontSize','fontFamily'];
+  const stileDiCella = (td) => { const o={}; CHIAVI_CELLA.forEach(k=>{ o[k] = td.style[k] || ''; }); return o; };
+  /* Alt+O: carica il pennello. Premuto due volte di fila resta agganciato, come il doppio clic in Word */
+  const pennelloDaTasto = () => {
+    const ora = Date.now();
+    const raddoppio = (ora - ultimoAltO.current) < 800;
+    ultimoAltO.current = ora;
+    if(fmtTPresoRef.current){
+      if(raddoppio && !fmtStickyRef.current){ setFmtSticky(true); return; }
+      spegniPennello(); return;
+    }
+    copiaFormatoTesto();
+  };
   const eGrassetto = (w) => w === 'bold' || w === 'bolder' || parseInt(w,10) >= 600;
   const vuoto = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
 
@@ -2147,11 +2505,34 @@ function RichText({value, onChange, placeholder, docKey}){
       verticalAlign: eCella ? (inl.verticalAlign || '') : '',
       width: eCella ? (inl.width || '') : '',
       lineHeight: eCella ? (inl.lineHeight || '') : '',
-      fontSize: eCella ? (inl.fontSize || '') : '',
+      fontSize: inl.fontSize || '',
+      fontFamily: inl.fontFamily || '',
       colSpan: eCella ? (n.colSpan || 1) : 1,
-      rowSpan: eCella ? (n.rowSpan || 1) : 1
+      rowSpan: eCella ? (n.rowSpan || 1) : 1,
+      blocco: null
     };
-    setFmtTPreso(true);
+    /* più celle scelte: copio il disegno dell'intero blocco (es. due righe che si alternano),
+       così posso ripeterlo su quante righe voglio */
+    const scelte = selRef.current.filter(td=>td.isConnected);
+    if(scelte.length > 1){
+      const tab = scelte[0].closest('table');
+      const gr = grigliaDi(tab);
+      const pos = scelte.map(td=>gr.dove.get(td)).filter(Boolean);
+      if(pos.length){
+        const r0=Math.min(...pos.map(p=>p.r)), r1=Math.max(...pos.map(p=>p.r));
+        const c0=Math.min(...pos.map(p=>p.c)), c1=Math.max(...pos.map(p=>p.c));
+        const m = [];
+        for(let r=0; r<=r1-r0; r++){
+          m[r] = [];
+          for(let c=0; c<=c1-c0; c++){
+            const td = cellaIn(gr, r0+r, c0+c);
+            m[r][c] = td ? stileDiCella(td) : null;
+          }
+        }
+        fmtTesto.current.blocco = m;
+      }
+    }
+    setFmtTPreso(true); setFmtSticky(false);
   };
 
   /* riproduce un'unione su una cella di destinazione */
@@ -2190,12 +2571,46 @@ function RichText({value, onChange, placeholder, docKey}){
       fontStyle: f.italic ? 'italic' : '',
       textDecoration: f.underline ? 'underline' : '',
       color: f.color || '',
-      backgroundColor: f.bg || ''
+      backgroundColor: f.bg || '',
+      fontSize: f.fontSize || '',
+      fontFamily: f.fontFamily || ''
     };
     if(f.cella){
-      ['textAlign','verticalAlign','width','lineHeight','fontSize'].forEach(k=>{ stile[k] = f[k] || ''; });
+      ['textAlign','verticalAlign','width','lineHeight'].forEach(k=>{ stile[k] = f[k] || ''; });
     }
     const destinazioni = celleScelte();
+
+    /* ho copiato un blocco di celle: lo ripeto sulla zona scelta, riga dopo riga */
+    if(f.blocco && destinazioni.length){
+      const tab = destinazioni[0].closest('table');
+      const gr = grigliaDi(tab);
+      const nr = f.blocco.length, nc = f.blocco[0].length;
+      let dest = destinazioni.filter(td=>td.isConnected);
+      if(dest.length === 1 && (nr > 1 || nc > 1)){
+        // una cella sola: il blocco si appoggia da lì in giù, come in un foglio di calcolo
+        const p0 = gr.dove.get(dest[0]);
+        const ext = [];
+        if(p0) for(let r=0;r<nr;r++) for(let c=0;c<nc;c++){
+          const td = cellaIn(gr, p0.r+r, p0.c+c);
+          if(td && ext.indexOf(td) < 0) ext.push(td);
+        }
+        if(ext.length) dest = ext;
+      }
+      const pos = dest.map(td=>({td, p:gr.dove.get(td)})).filter(x=>x.p);
+      if(pos.length){
+        const r0=Math.min(...pos.map(x=>x.p.r)), c0=Math.min(...pos.map(x=>x.p.c));
+        pos.forEach(({td,p})=>{
+          const st = f.blocco[(p.r-r0) % nr][(p.c-c0) % nc];
+          if(!st) return;
+          Object.entries(st).forEach(([k,v])=>{
+            if(v) td.style[k] = v;
+            else td.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase()));
+          });
+        });
+        emit(true); dopoAverApplicato(); return;
+      }
+    }
+
     if(destinazioni.length){
       applicaStileCelle(stile);
       if(f.cella && (f.colSpan > 1 || f.rowSpan > 1) && !daSelezione){
@@ -2203,7 +2618,8 @@ function RichText({value, onChange, placeholder, docKey}){
         puliscoSel(); setInTable(false); setTblBox(null);
         emit(true);
       }
-      return;                                   // il pennello resta carico per il punto successivo
+      dopoAverApplicato();
+      return;
     }
 
     if(!daSelezione){ ref.current.focus(); ripristinaRange(); }
@@ -2214,9 +2630,9 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     const messo = {};
     Object.entries(stile).forEach(([k,v])=>{ if(v) messo[k] = v; });
-    if(!Object.keys(messo).length){ setFmtTPreso(false); return; }
+    if(!Object.keys(messo).length){ spegniPennello(); return; }
     applicaStileTesto(messo);
-    // resta acceso: si spegne con Esc o ripremendo 🖌
+    dopoAverApplicato();      // una passata sola, salvo quando è agganciato
   };
 
   /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
@@ -2338,6 +2754,40 @@ function RichText({value, onChange, placeholder, docKey}){
     emit();
   };
 
+  /* tiene il formato di quello che incollo, buttando via il contorno di Word e delle pagine web */
+  const ATTR_TENUTI = ['href','src','alt','colspan','rowspan','style','class'];
+  const STILI_TENUTI = ['color','background-color','font-weight','font-style','text-decoration','text-align',
+    'font-size','font-family','vertical-align','line-height','width'];
+  const CLASSI_MIE = ['grp','grp-t','grp-c','chiuso','cklist','ck','fatto'];
+  const ripulisciIncollato = (html) => {
+    const box = document.createElement('div');
+    box.innerHTML = String(html||'');
+    box.querySelectorAll('script,style,meta,link,title,noscript,iframe,object,input,button,svg').forEach(el=>el.remove());
+    Array.from(box.querySelectorAll('*')).forEach(el=>{
+      const tag = el.tagName.toLowerCase();
+      if(tag.indexOf(':') >= 0){ el.replaceWith(...el.childNodes); return; }   // <o:p> e simili di Word
+      Array.from(el.attributes).forEach(a=>{
+        if(ATTR_TENUTI.indexOf(a.name.toLowerCase()) < 0) el.removeAttribute(a.name);
+      });
+      const classi = (el.getAttribute('class')||'').split(/\s+/).filter(c=>CLASSI_MIE.indexOf(c) >= 0);
+      if(classi.length) el.setAttribute('class', classi.join(' ')); else el.removeAttribute('class');
+      const st = el.getAttribute('style');
+      if(st){
+        const tenuti = st.split(';').map(x=>x.trim()).filter(x=>{
+          const k = (x.split(':')[0]||'').trim().toLowerCase();
+          if(STILI_TENUTI.indexOf(k) < 0) return false;
+          if(k === 'width' && tag !== 'td' && tag !== 'th') return false;
+          // lo sfondo bianco di Word coprirebbe il foglio: lo lascio perdere
+          if(k === 'background-color' && /(#fff(fff)?|255,\s*255,\s*255|white)/i.test(x)) return false;
+          return true;
+        });
+        if(tenuti.length) el.setAttribute('style', tenuti.join('; ')); else el.removeAttribute('style');
+      }
+      if(tag === 'img' && !/^(data:|https?:)/.test(el.getAttribute('src')||'')) el.remove();
+    });
+    return box.innerHTML;
+  };
+
   const pickImage = () => fileRef.current.click();
   const onFile = async (e) => {
     const files = Array.from(e.target.files||[]);
@@ -2387,6 +2837,18 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<h2>')} title="Titolo">T1</button>
         <button onClick={()=>cmd('formatBlock','<h3>')} title="Sottotitolo">T2</button>
         <button onClick={()=>cmd('formatBlock','<p>')} title="Testo normale">¶</button>
+        <select className="mini" title="Corpo del carattere" value=""
+          onMouseDown={()=>salvaRange()}
+          onChange={e=>{ const v = e.target.value; e.target.value=''; if(v) setCorpo(parseInt(v,10)); }}>
+          <option value="">Corpo</option>
+          {CORPI.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="mini" title="Tipo di carattere" value=""
+          onMouseDown={()=>salvaRange()}
+          onChange={e=>{ const v = e.target.value; e.target.value=''; if(v) setFamiglia(v==='DEF' ? '' : v); }}>
+          <option value="">Carattere</option>
+          {FAMIGLIE.map(f=><option key={f.n} value={f.v || 'DEF'}>{f.n}</option>)}
+        </select>
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button className="split-main" onClick={()=>cmd('insertUnorderedList')} title="Elenco puntato">•—</button>
           <button className="split-caret" onClick={()=>setPal(pal==='segno'?null:'segno')} title="Scegli il simbolo">▾</button>
@@ -2409,6 +2871,26 @@ function RichText({value, onChange, placeholder, docKey}){
           )}
         </span>
         <button onClick={()=>cmd('insertOrderedList')} title="Elenco numerato">1—</button>
+        <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <button className="split-main" onClick={elencoSpunte}
+            title="Elenco con le caselle da spuntare (ripremi per tornare all'elenco normale)">☑—</button>
+          <button className="split-caret" onClick={()=>setPal(pal==='spunte'?null:'spunte')} title="Altro sulle caselle">▾</button>
+          {pal==='spunte' && (
+            <div className="pal" onMouseDown={e=>e.preventDefault()}>
+              <div className="pal-tit">Caselle di spunta</div>
+              <button className="pal-riga" onClick={()=>{ elencoSpunte(); setPal(null); }}>
+                <span className="glifo">☑</span> Metti o togli le caselle
+              </button>
+              <button className="pal-riga" onClick={()=>{ spuntaTutte(true); setPal(null); }}>
+                <span className="glifo">✓</span> Spunta tutte
+              </button>
+              <button className="pal-riga" onClick={()=>{ spuntaTutte(false); setPal(null); }}>
+                <span className="glifo">☐</span> Togli tutte le spunte
+              </button>
+              <div className="pal-tit" style={{marginTop:6}}>Le caselle non spuntate finiscono nel conteggio “da fare” della cartella.</div>
+            </div>
+          )}
+        </span>
         <button onClick={()=>cmd('formatBlock','<blockquote>')} title="Citazione">❞</button>
         <button onClick={raggruppa} title="Raggruppa: il primo blocco selezionato diventa il titolo. Dentro una tabella, la raggruppa con la riga sopra">⊟</button>
         <button onClick={sciogli} title="Sciogli: con il cursore nel gruppo lo apre tutto, con delle righe selezionate porta fuori solo quelle">⊞</button>
@@ -2449,8 +2931,12 @@ function RichText({value, onChange, placeholder, docKey}){
 
         <button className={fmtTPreso?'attivo-fmt':''}
           onMouseDown={e=>{e.preventDefault(); salvaRange();}}
-          onClick={()=>{ if(fmtTPreso) setFmtTPreso(false); else copiaFormatoTesto(); }}
-          title={fmtTPreso ? 'Pennello attivo (Esc o Alt+O per spegnerlo)' : 'Copia formato — Alt+O oppure Ctrl+Maiusc+C'}>🖌</button>
+          onClick={()=>{ if(fmtTPreso) spegniPennello(); else copiaFormatoTesto(); }}
+          onDoubleClick={()=>{ if(!fmtTPresoRef.current) copiaFormatoTesto(); setFmtSticky(true); }}
+          title={fmtTPreso
+            ? (fmtSticky ? 'Pennello agganciato: si applica a ogni selezione (Esc per spegnerlo)'
+                         : 'Pennello carico per una sola applicazione (Esc per spegnerlo)')
+            : 'Copia formato — un clic (o Alt+O) per una volta sola, doppio clic (o Alt+O O) per tenerlo acceso'}>🖌</button>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setPal(pal==='allinea'?null:'allinea')} onMouseDown={e=>{e.preventDefault(); salvaRange();}}
@@ -2493,7 +2979,9 @@ function RichText({value, onChange, placeholder, docKey}){
 
       {busy && <div className="peso">{busy}</div>}
       {fmtTPreso && <div className="avviso-pennello">
-        🖌 Pennello carico — seleziona testo o celle e il formato si applica subito. Resta attivo per più punti: Esc, 🖌 o Alt+O per spegnerlo.
+        {fmtSticky
+          ? '🖌 Pennello agganciato — si applica a ogni testo o cella che selezioni, finché non premi Esc.'
+          : '🖌 Pennello carico — seleziona il testo o le celle: il formato si applica e il pennello si spegne. Doppio clic sul 🖌 (o Alt+O due volte) per tenerlo acceso.'}
       </div>}
 
       <div className="rt-wrap" ref={wrapRef}>
@@ -2519,7 +3007,7 @@ function RichText({value, onChange, placeholder, docKey}){
               title="Scegli un altro colore per la cella">▾</button>
             {pal==='cella' && (
               <Palette colori={COLORI_EVID} evid etichetta="Togli il colore" recenti={recenti}
-                onCustom={()=>{ targetRef.current='cella'; salvaRange(); colorRef.current.value='#e9ede9'; colorRef.current.click(); }}
+                onCustom={()=>{ targetRef.current='cella'; salvaRange(); colorRef.current.value='#ffffff'; colorRef.current.click(); }}
                 onPick={v=>{ ricorda(v); ricordaCella(v); coloraCelle(v); }}
                 onClear={()=>coloraCelle(null)}/>
             )}
@@ -2566,9 +3054,14 @@ function RichText({value, onChange, placeholder, docKey}){
               </div>
             )}
           </span>
+          <button onClick={sommaAuto}
+            title="Somma automatica: totale delle celle scelte, con la formula viva (=SOMMA)">Σ</button>
+          <button onClick={togliFormula} title="Togli la formula e lascia il numero">=✕</button>
           <button className={fmtTPreso?'attivo':''}
             onClick={()=>{ if(fmtTPreso) incollaFormatoTesto(); else copiaFormatoTesto(); }}
-            title={fmtTPreso? 'Applica il formato alle celle scelte' : 'Copia tutto il formato di questa cella'}>🖌</button>
+            onDoubleClick={()=>{ if(!fmtTPresoRef.current) copiaFormatoTesto(); setFmtSticky(true); }}
+            title={fmtTPreso? 'Applica il formato alle celle scelte (doppio clic: resta acceso)'
+                            : 'Copia il formato: una cella sola, oppure un blocco da ripetere su più righe'}>🖌</button>
           <span className="sep"></span>
           <button onClick={raggruppa} title="Raggruppa la tabella con il titolo che sta sopra">⊟</button>
           <button onClick={unisciCelle} title="Unisci le celle selezionate (anche su più righe)">⇥⇤</button>
@@ -2593,6 +3086,7 @@ function RichText({value, onChange, placeholder, docKey}){
         onMouseDown={e=>{
           const td = e.target.closest && e.target.closest('td,th');
           if(!td || !ref.current.contains(td)){ 
+            if(inModifica.current) chiudiModifica();
             if(modo==='sel'){ puliscoSel(); setInTable(false); setTblBox(null); setMulti(false); }
             return;
           }
@@ -2635,6 +3129,17 @@ function RichText({value, onChange, placeholder, docKey}){
           if(t && e.nativeEvent.offsetX < 24){
             t.parentNode.classList.toggle('chiuso');
             emit(true);
+            return;
+          }
+          // casella di spunta: si tocca il quadratino a sinistra della riga
+          const li = e.target.closest && e.target.closest('li.ck');
+          if(li && ref.current.contains(li)){
+            const r = li.getBoundingClientRect();
+            if(e.clientX - r.left < 28){
+              e.preventDefault();
+              li.classList.toggle('fatto');
+              emit(true);
+            }
           }
         }}
         onDoubleClick={e=>{
@@ -2645,9 +3150,18 @@ function RichText({value, onChange, placeholder, docKey}){
         onInput={emit}
         onKeyDown={e=>{
           // copia formato: Alt+O carica il pennello, Ctrl/Cmd+Maiusc+C copia, +V applica
-          if(e.altKey && (e.key === 'o' || e.key === 'O')){
-            e.preventDefault();
-            if(fmtTPresoRef.current) setFmtTPreso(false); else copiaFormatoTesto();
+          if(e.altKey && (e.key === 'o' || e.key === 'O' || e.code === 'KeyO')){
+            e.preventDefault(); pennelloDaTasto(); return;
+          }
+          if(e.key === 'Escape' && fmtTPresoRef.current){ e.preventDefault(); spegniPennello(); return; }
+          if((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'v' || e.key === 'V' || e.code === 'KeyV')){
+            e.preventDefault();                       // incolla senza formato
+            if(navigator.clipboard && navigator.clipboard.readText){
+              navigator.clipboard.readText().then(t=>{
+                ref.current.focus(); ripristinaRange();
+                document.execCommand('insertText', false, t); emit();
+              }).catch(()=>alert('Il browser non mi lascia leggere gli appunti: usa Ctrl+Maiusc+V del sistema.'));
+            }
             return;
           }
           if((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')){
@@ -2677,7 +3191,13 @@ function RichText({value, onChange, placeholder, docKey}){
           salvaRange();
           if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
         }}
-        onBlur={salvaRange}
+        onBlur={()=>{
+          salvaRange();
+          // uscendo dall'editor chiudo la cella aperta, così la formula viene registrata
+          setTimeout(()=>{
+            if(inModifica.current && ref.current && !ref.current.contains(document.activeElement)) chiudiModifica();
+          }, 150);
+        }}
         onFocus={checkCtx}
         onPaste={e=>{
           const dt = e.clipboardData||window.clipboardData;
@@ -2694,12 +3214,9 @@ function RichText({value, onChange, placeholder, docKey}){
           if(html && /<table/i.test(html)){
             e.preventDefault();
             const box = document.createElement('div');
-            box.innerHTML = html;
+            box.innerHTML = ripulisciIncollato(html);
             const t = box.querySelector('table');
             if(t){
-              t.querySelectorAll('*').forEach(el=>{
-                ['style','class','width','height','bgcolor','align','valign','id'].forEach(a=>el.removeAttribute(a));
-              });
               t.querySelectorAll('table').forEach((n,i)=>{ if(i>0) n.replaceWith(...n.childNodes); });
               document.execCommand('insertHTML', false, t.outerHTML + '<p><br></p>');
               emit();
@@ -2707,7 +3224,10 @@ function RichText({value, onChange, placeholder, docKey}){
             }
           }
           e.preventDefault();
-          document.execCommand('insertText', false, dt.getData('text/plain'));
+          // il testo arriva con il suo formato: grassetti, colori, elenchi e collegamenti restano
+          if(html && html.trim()) document.execCommand('insertHTML', false, ripulisciIncollato(html));
+          else document.execCommand('insertText', false, testoPiano);
+          emit();
         }}
       />
 
@@ -3298,6 +3818,14 @@ function App(){
   },[documenti]);
   const countRamo = useCallback((id)=>ramoDi(id).reduce((n,x)=>n+(countBySez[x]||0),0),[ramoDi,countBySez]);
 
+  /* cose ancora da fare, sommate fra tutti i documenti della sezione e delle sue cartelle */
+  const todoBySez = useMemo(()=>{
+    const c={};
+    Object.values(documenti).forEach(d=>{ const n = daFare(d); if(n) c[d.sezioneId]=(c[d.sezioneId]||0)+n; });
+    return c;
+  },[documenti]);
+  const todoRamo = useCallback((id)=>ramoDi(id).reduce((n,x)=>n+(todoBySez[x]||0),0),[ramoDi,todoBySez]);
+
   const azioniAperte = useMemo(()=>{
     const out=[];
     Object.values(documenti).forEach(d=>{
@@ -3779,6 +4307,7 @@ function App(){
                 onDrop={e=>{e.preventDefault(); spostaDoc(e.dataTransfer.getData('text/plain'), s.id); setDragSu(null);}}>
                 <span className="chip" style={{background:s.colore}}></span>
                 <span className="name">{s.nome}</span>
+                {todoRamo(s.id)>0 && <span className="n todo" title="cose ancora da fare qui dentro">{todoRamo(s.id)}</span>}
                 <span className="n">{countRamo(s.id)||''}</span>
                 <span className="edit" onClick={e=>{e.stopPropagation(); setModalSez({sezione:s});}}>✎</span>
               </button>
@@ -3841,6 +4370,8 @@ function App(){
                   <span className="tri">{espansa ? '▾' : '▸'}</span>
                   <span className="ic" style={{color:f.colore}}>▣</span>
                   <span className="t">{f.nome}</span>
+                  {dentro.reduce((n,d)=>n+daFare(d),0) > 0 &&
+                    <span className="q todo" title="cose ancora da fare in questa cartella">{dentro.reduce((n,d)=>n+daFare(d),0)}</span>}
                   <span className="q">{dentro.length || ''}</span>
                   <span className="ed" title="Nuovo documento qui"
                     onClick={e=>{e.stopPropagation(); setCartella(f.id); setAperte(p=>({...p,[f.id]:true})); setModalNew(true);}}>＋</span>
@@ -3851,7 +4382,7 @@ function App(){
                   <div className="cart-vuota">Nessun documento — trascinane uno qui</div>
                 )}
                 {espansa && dentro.map(d=>{
-                  const aperteAz = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
+                  const aperteAz = daFare(d);
                   return (
                     <button key={d.id} className={'card dentro'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
                       draggable
@@ -3891,7 +4422,7 @@ function App(){
           )}
           {docList.map(d=>{
             // le macro-attività raggruppano soltanto: non sono cose da fare
-            const aperte = (d.azioni||[]).filter(a=>!a.macro && !a.fatto && (a.testo||'').trim()).length;
+            const aperte = daFare(d);
             return (
               <button key={d.id} className={'card'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
                 draggable
