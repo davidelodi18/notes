@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "17 set · archivio e cestino";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "18 set · raggruppa solo la selezione";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1277,162 +1277,154 @@ function RichText({value, onChange, placeholder, docKey}){
     return lista;
   };
 
-  /* blocchi interi toccati dalla selezione: un elenco vale come un blocco solo,
-     così raggruppare funziona anche con elenchi e testi lunghi */
+  /* ═══ blocchi toccati dalla selezione ═══
+     Restituisce SOLO i blocchi in cui la selezione prende davvero del testo.
+     Un elenco conta come un blocco unico; dentro una cella si resta dentro la cella. */
   const blocchiDiPrimoLivello = () => {
     const sel = window.getSelection();
-    if(!sel || !sel.rangeCount) return [];
+    if(!sel || !sel.rangeCount || !ref.current) return [];
     const r = sel.getRangeAt(0);
-    if(!ref.current || !ref.current.contains(r.commonAncestorContainer)) return [];
+    if(!ref.current.contains(r.commonAncestorContainer)) return [];
     let cont = r.commonAncestorContainer;
     if(cont.nodeType === 3) cont = cont.parentElement;
-    cont = (cont.closest && cont.closest('.grp-c, td, th')) || ref.current;
+    cont = (cont.closest && cont.closest('.grp-c, td, th, li')) || ref.current;
+    if(cont.tagName === 'LI') cont = cont.closest('.grp-c, td, th') || ref.current;
     if(!ref.current.contains(cont)) cont = ref.current;
-    let dentro = Array.from(cont.children).filter(el=>{
+
+    return Array.from(cont.children).filter(el=>{
       if(el.nodeType !== 1) return false;
-      try{ return r.intersectsNode(el); }catch(err){ return false; }
-    });
-    // l'ultimo blocco sfiorato senza prendere nemmeno un carattere non fa parte della selezione
-    if(!sel.isCollapsed && dentro.length > 1){
-      const ultimo = dentro[dentro.length-1];
+      let tocca = false;
+      try{ tocca = r.intersectsNode(el); }catch(err){ tocca = false; }
+      if(!tocca) return false;
+      if(sel.isCollapsed) return true;
+      /* quanto testo di questo blocco è davvero selezionato: se nulla, il blocco resta fuori.
+         È il caso della selezione che arriva fino all'inizio della riga successiva. */
       try{
-        const dd = document.createRange();
-        dd.selectNodeContents(ultimo);
-        if(dd.compareBoundaryPoints(Range.START_TO_END, r) >= 0) dd.setEnd(r.endContainer, r.endOffset);
-        if(!dd.toString().replace(/\u00a0/g,'').trim()) dentro = dentro.slice(0, -1);
-      }catch(err){}
-    }
-    return dentro;
+        const inter = document.createRange();
+        inter.selectNodeContents(el);
+        if(inter.compareBoundaryPoints(Range.START_TO_START, r) < 0) inter.setStart(r.startContainer, r.startOffset);
+        if(inter.compareBoundaryPoints(Range.END_TO_END, r) > 0) inter.setEnd(r.endContainer, r.endOffset);
+        if(inter.collapsed) return false;
+        if(inter.toString().replace(/\u00a0/g,'').trim()) return true;
+        return !!el.querySelector('table,img');
+      }catch(err){ return true; }
+    });
   };
 
-  /* raggruppa i blocchi selezionati: il primo diventa il titolo, gli altri il contenuto pieghevole */
   const dentroGruppo = () => {
     const sel = window.getSelection();
     let n = sel && sel.anchorNode;
     if(n && n.nodeType === 3) n = n.parentElement;
     return (n && ref.current.contains(n)) ? n.closest('.grp') : null;
   };
-  const raggruppa = () => {
-    let bl = blocchiDiPrimoLivello().filter(el=>
-      el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c') && el.tagName !== 'TD' && el.tagName !== 'TH');
-    if(!bl.length){
-      // ripiego sul vecchio metodo, quando non riesco a capire dove sta la selezione
-      bl = blocchiSelezionati().filter(el=>
-        el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c') && el.tagName !== 'TD' && el.tagName !== 'TH');
-    }
-    // tolgo i blocchi già contenuti in altri della lista, per non annidare
-    bl = bl.filter(el => !bl.some(altro => altro !== el && altro.contains(el)));
 
-    /* ho preso un elenco (o una citazione) da solo: il titolo è la riga che sta sopra.
-       È il caso che prima non funzionava, con gli elenchi e i testi lunghi. */
-    const eVuoto = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
-    if(bl.length === 1 && /^(UL|OL|BLOCKQUOTE|PRE)$/.test(bl[0].tagName)){
-      const corpo = bl[0];
-      let prima = corpo.previousElementSibling;
-      const daTogliere = [];
-      while(prima && eVuoto(prima) && !prima.classList.contains('grp')){
-        daTogliere.push(prima);
-        prima = prima.previousElementSibling;
-      }
-      const titoloValido = prima && !prima.classList.contains('grp') && prima.tagName !== 'TABLE' && !eVuoto(prima);
-      const grp = document.createElement('div'); grp.className = 'grp';
-      const tit = document.createElement('div'); tit.className = 'grp-t';
-      const cnt = document.createElement('div'); cnt.className = 'grp-c';
-      tit.innerHTML = titoloValido ? prima.innerHTML : 'Elenco';
-      corpo.parentNode.insertBefore(grp, corpo);
-      grp.appendChild(tit);
-      cnt.appendChild(corpo);
-      grp.appendChild(cnt);
-      daTogliere.forEach(el=>el.remove());
-      if(titoloValido) prima.remove();
-      emit(true);
-      return;
-    }
+  /* ═══ raggruppamento ═══
+     Regola: se c'è una selezione, entra nel gruppo SOLO quello che è selezionato.
+     Le scorciatoie (tabella o elenco con il titolo di sopra) valgono solo col semplice cursore. */
+  const eBloccoVuoto = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
 
-    // ho selezionato solo l'intestazione e subito sotto c'è una tabella: la includo da sola,
-    // senza toccare quello che viene dopo (a meno che non sia stato selezionato anch'esso)
-    if(bl.length === 1 && bl[0].tagName !== 'TABLE'){
-      const titolo = bl[0];
-      // cerco la prima tabella che segue il titolo, ovunque si trovi nella struttura
-      const tabella = Array.from(ref.current.querySelectorAll('table')).find(t=>
-        !titolo.contains(t) && (titolo.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING));
-      if(tabella){
-        // fra il titolo e la tabella non deve esserci altro testo
-        let inMezzo = '';
-        try{
-          const r2 = document.createRange();
-          r2.setStartAfter(titolo); r2.setEndBefore(tabella);
-          inMezzo = r2.toString().replace(/\u00a0/g,'').trim();
-        }catch(err){ inMezzo = 'x'; }
-        if(!inMezzo){
-          const grp = document.createElement('div'); grp.className = 'grp';
-          const tit = document.createElement('div'); tit.className = 'grp-t';
-          const cnt = document.createElement('div'); cnt.className = 'grp-c';
-          tit.innerHTML = titolo.innerHTML;
-          titolo.parentNode.insertBefore(grp, titolo);
-          grp.appendChild(tit);
-          // porto via le righe vuote rimaste fra titolo e tabella
-          let x = grp.nextSibling;
-          while(x && x !== tabella && !x.contains(tabella)){
-            const via = x; x = x.nextSibling;
-            if(via !== titolo) via.remove();
-          }
-          cnt.appendChild(tabella);
-          grp.appendChild(cnt);
-          titolo.remove();
-          puliscoSel(); setInTable(false); setTblBox(null);
-          emit(true);
-          return;
-        }
-      }
-    }
-
-    // se sono dentro una tabella, la raggruppo con la riga che la precede
-    if(bl.length < 2){
-      const cella = cellaCorrente() || cellFromSelection();
-      const tab = cella ? cella.closest('table') : (bl[0] && bl[0].tagName === 'TABLE' ? bl[0] : null);
-      if(tab && ref.current.contains(tab)){
-        // risalgo saltando le righe vuote che l'editor lascia intorno alle tabelle
-        const eVuoto = el => !el.textContent.replace(/\u00a0/g,'').trim() && !el.querySelector('table,img');
-        let prima = tab.previousElementSibling;
-        const daTogliere = [];
-        while(prima && eVuoto(prima) && !prima.classList.contains('grp')){
-          daTogliere.push(prima);
-          prima = prima.previousElementSibling;
-        }
-        const titoloValido = prima && !prima.classList.contains('grp') && prima.tagName !== 'TABLE' && !eVuoto(prima);
-
-        const grp = document.createElement('div'); grp.className = 'grp';
-        const tit = document.createElement('div'); tit.className = 'grp-t';
-        const cnt = document.createElement('div'); cnt.className = 'grp-c';
-        tit.innerHTML = titoloValido ? prima.innerHTML : 'Tabella';
-        tab.parentNode.insertBefore(grp, tab);
-        grp.appendChild(tit);
-        cnt.appendChild(tab);
-        grp.appendChild(cnt);
-        daTogliere.forEach(el=>el.remove());
-        if(titoloValido) prima.remove();
-        puliscoSel(); setInTable(false); setTblBox(null);
-        emit(true);
-        return;
-      }
-    }
-    if(bl.length < 2){
-      alert('Non ho trovato cosa raggruppare. Seleziona il titolo e le righe da includere, oppure metti il cursore nel titolo se subito sotto c\'è una tabella.');
-      return;
-    }
+  const montaGruppo = (titoloHtml, corpi, titoloEl, daTogliere) => {
+    if(!corpi.length) return false;
+    const ancora = corpi[0];
+    if(!ancora.parentNode) return false;
     const grp = document.createElement('div'); grp.className = 'grp';
     const tit = document.createElement('div'); tit.className = 'grp-t';
     const cnt = document.createElement('div'); cnt.className = 'grp-c';
-    const primo = bl[0];
-    primo.parentNode.insertBefore(grp, primo);
-    tit.innerHTML = primo.innerHTML || 'Titolo del gruppo';
+    tit.innerHTML = titoloHtml || 'Titolo del gruppo';
+    ancora.parentNode.insertBefore(grp, ancora);
     grp.appendChild(tit);
-    bl.slice(1).forEach(b=>cnt.appendChild(b));
+    corpi.forEach(b=>cnt.appendChild(b));
     grp.appendChild(cnt);
-    primo.remove();
+    (daTogliere||[]).forEach(el=>{ if(el.parentNode) el.remove(); });
+    if(titoloEl && titoloEl.parentNode) titoloEl.remove();
+    puliscoSel(); setInTable(false); setTblBox(null);
     emit(true);
+    return true;
   };
+
+  /* prende la riga sopra come titolo, saltando le righe vuote lasciate dall'editor */
+  const conTitoloSopra = (corpo, nomeDiScorta) => {
+    let prima = corpo.previousElementSibling;
+    const daTogliere = [];
+    while(prima && eBloccoVuoto(prima) && !prima.classList.contains('grp')){
+      daTogliere.push(prima);
+      prima = prima.previousElementSibling;
+    }
+    const valido = prima && !prima.classList.contains('grp') && prima.tagName !== 'TABLE' && !eBloccoVuoto(prima);
+    return montaGruppo(valido ? prima.innerHTML : nomeDiScorta, [corpo], valido ? prima : null, daTogliere);
+  };
+
+  const raggruppa = () => {
+    const sel = window.getSelection();
+    const r = (sel && sel.rangeCount) ? sel.getRangeAt(0) : null;
+    const haSelezione = !!(r && !sel.isCollapsed
+      && ref.current.contains(r.commonAncestorContainer)
+      && sel.toString().replace(/\u00a0/g,'').trim());
+
+    let bl = blocchiDiPrimoLivello().filter(el=>
+      el !== ref.current && !el.classList.contains('grp-t') && !el.classList.contains('grp-c')
+      && el.tagName !== 'TD' && el.tagName !== 'TH');
+    // niente blocchi già contenuti in altri della lista, per non annidare
+    bl = bl.filter(el => !bl.some(altro => altro !== el && altro.contains(el)));
+
+    /* ── con una selezione: esattamente i blocchi selezionati, niente di quello che sta sotto ── */
+    if(haSelezione){
+      if(bl.length >= 2){
+        const primo = bl[0];
+        if(/^(UL|OL|TABLE)$/.test(primo.tagName)){
+          // il primo blocco non è una riga di testo: lo lascio dentro e metto un titolo di scorta
+          montaGruppo(primo.tagName === 'TABLE' ? 'Tabella' : 'Elenco', bl, null, null);
+        } else {
+          montaGruppo(primo.innerHTML, bl.slice(1), primo, null);
+        }
+        return;
+      }
+      if(bl.length === 1 && /^(UL|OL|TABLE|BLOCKQUOTE|PRE)$/.test(bl[0].tagName)){
+        conTitoloSopra(bl[0], bl[0].tagName === 'TABLE' ? 'Tabella' : 'Elenco');
+        return;
+      }
+      if(bl.length === 1){
+        alert('Hai selezionato una riga sola. Allunga la selezione fino a comprendere anche le righe da mettere dentro: la prima diventa il titolo del gruppo.');
+        return;
+      }
+      const dentroTabella = r.commonAncestorContainer &&
+        ((r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentElement : r.commonAncestorContainer).closest('table'));
+      alert(dentroTabella
+        ? 'Sei dentro una tabella: togli la selezione e lascia solo il cursore in una cella, così raggruppo tutta la tabella con la riga che sta sopra.'
+        : 'Da qui non riesco a raggruppare: seleziona le righe del documento da mettere nel gruppo.');
+      return;
+    }
+
+    /* ── solo cursore, niente selezione: le scorciatoie ── */
+    // 1) il cursore è dentro una tabella: la raggruppo con la riga che la precede
+    const cella = cellaCorrente() || cellFromSelection();
+    const tabCorrente = cella ? cella.closest('table') : (bl.length === 1 && bl[0].tagName === 'TABLE' ? bl[0] : null);
+    if(tabCorrente && ref.current.contains(tabCorrente) && !tabCorrente.closest('.grp-c')){
+      conTitoloSopra(tabCorrente, 'Tabella');
+      return;
+    }
+
+    // 2) il cursore è su una riga di testo e subito sotto c'è una tabella o un elenco
+    if(bl.length === 1 && !/^(UL|OL|TABLE)$/.test(bl[0].tagName)){
+      const titolo = bl[0];
+      let dopo = titolo.nextElementSibling;
+      const vuoti = [];
+      while(dopo && eBloccoVuoto(dopo)){ vuoti.push(dopo); dopo = dopo.nextElementSibling; }
+      if(dopo && /^(TABLE|UL|OL)$/.test(dopo.tagName)){
+        montaGruppo(titolo.innerHTML, [dopo], titolo, vuoti);
+        return;
+      }
+    }
+
+    // 3) il cursore è dentro un elenco: elenco più riga di sopra
+    if(bl.length === 1 && /^(UL|OL|BLOCKQUOTE|PRE)$/.test(bl[0].tagName)){
+      conTitoloSopra(bl[0], 'Elenco');
+      return;
+    }
+
+    alert('Seleziona le righe da raggruppare: la prima diventa il titolo e le altre finiscono dentro. Con il solo cursore raggruppo la tabella o l\'elenco che hai sotto.');
+  };
+
   const [tuttiChiusi,setTuttiChiusi] = useState(false);
   const alternaTutti = () => {
     const gruppi = Array.from(ref.current.querySelectorAll('.grp'));
