@@ -23,7 +23,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "18 set · raggruppa solo la selezione";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "20 set · elenchi riga per riga";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1100,6 +1100,7 @@ function RichText({value, onChange, placeholder, docKey}){
       setTuttiChiusi(g.length > 0 && g.every(x=>x.classList.contains('chiuso')));
     }, 0);
     setPuoAnnullare(false); setPuoRipetere(false);
+    try{ document.execCommand('defaultParagraphSeparator', false, 'p'); }catch(err){}
     setTimeout(ricalcolaTutto, 0);
   }, [docKey]);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
@@ -1144,9 +1145,141 @@ function RichText({value, onChange, placeholder, docKey}){
   const STILE_CMD = {
     bold: {fontWeight:'bold'}, italic: {fontStyle:'italic'}, underline: {textDecoration:'underline'}
   };
+  /* ═══ ogni riga nel suo paragrafo ═══
+     Il testo scritto di seguito con gli a capo è, per il browser, un blocco unico:
+     mettendo l'elenco puntato su una riga se lo porterebbe dietro anche le righe di sopra.
+     Prima di elenchi e titoli spezzo quindi la riga del cursore in un paragrafo suo. */
+  const RX_BLOCCO = /^(P|DIV|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|PRE|UL|OL|TABLE|HR|FIGURE)$/;
+  const eSciolto = n => n.nodeType === 3 || (n.nodeType === 1 && n.tagName !== 'BR' && !RX_BLOCCO.test(n.tagName));
+
+  /* raccoglie in <p> quello che nel contenitore sta sciolto, tagliando sugli a capo */
+  const impaginaSciolti = (cont) => {
+    if(!cont) return false;
+    let cambiato = false, corrente = null, nodo = cont.firstChild;
+    while(nodo){
+      const prossimo = nodo.nextSibling;
+      if(nodo.nodeType === 1 && nodo.tagName === 'BR'){
+        if(corrente){ nodo.remove(); }
+        else { const p = document.createElement('p'); p.appendChild(document.createElement('br')); cont.replaceChild(p, nodo); }
+        cambiato = true; corrente = null;
+      } else if(eSciolto(nodo)){
+        const soloSpazi = nodo.nodeType === 3 && !nodo.textContent.replace(/\u00a0/g,'').trim();
+        if(!(soloSpazi && !corrente)){
+          if(!corrente){ corrente = document.createElement('p'); cont.insertBefore(corrente, nodo); cambiato = true; }
+          corrente.appendChild(nodo);
+        }
+      } else corrente = null;            // è già un blocco suo: non lo tocco
+      nodo = prossimo;
+    }
+    return cambiato;
+  };
+
+  /* un paragrafo che contiene degli a capo diventa tanti paragrafi */
+  const spezzaSuBr = (blocco) => {
+    if(!blocco || blocco === ref.current || !ref.current.contains(blocco)) return false;
+    if(!/^(P|DIV|H1|H2|H3|H4|H5|H6)$/.test(blocco.tagName)) return false;
+    if(blocco.classList.contains('grp') || blocco.classList.contains('grp-t') || blocco.classList.contains('grp-c')) return false;
+    const figli = Array.from(blocco.childNodes);
+    const quantiBr = figli.filter(n=>n.nodeType===1 && n.tagName==='BR').length;
+    if(!quantiBr) return false;
+    if(quantiBr === 1 && !blocco.textContent.replace(/\u00a0/g,'').trim()) return false;   // paragrafo vuoto
+    const pezzi = [[]];
+    figli.forEach(n=>{
+      if(n.nodeType===1 && n.tagName==='BR') pezzi.push([]);
+      else pezzi[pezzi.length-1].push(n);
+    });
+    const frag = document.createDocumentFragment();
+    const stile = blocco.getAttribute('style');
+    pezzi.forEach(pz=>{
+      const p = document.createElement('p');
+      if(stile) p.setAttribute('style', stile);
+      pz.forEach(n=>p.appendChild(n));
+      if(!p.childNodes.length) p.appendChild(document.createElement('br'));
+      frag.appendChild(p);
+    });
+    blocco.replaceWith(frag);
+    return true;
+  };
+
+  const perRigheProprie = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || !ref.current) return;
+    const r = sel.getRangeAt(0);
+    if(!ref.current.contains(r.startContainer) || !ref.current.contains(r.endContainer)) return;
+    if(r.startContainer.nodeType === 1 && r.startContainer === ref.current && !ref.current.firstChild) return;
+
+    // due segnalini invisibili per ritrovare la selezione dopo aver rifatto i paragrafi
+    const m1 = document.createElement('span'), m2 = document.createElement('span');
+    m1.setAttribute('data-seg','a'); m2.setAttribute('data-seg','b');
+    try{
+      const rb = r.cloneRange(); rb.collapse(false); rb.insertNode(m2);
+      const ra = r.cloneRange(); ra.collapse(true); ra.insertNode(m1);
+    }catch(err){ return; }
+
+    try{
+      if(!m1.closest('li')){
+        impaginaSciolti(contenitoreDelCursore(m1));
+        spezzaSuBr(m1.closest('p,div,h1,h2,h3,h4,h5,h6'));
+        if(m2.parentElement && m2.parentElement !== m1.parentElement) spezzaSuBr(m2.closest('p,div,h1,h2,h3,h4,h5,h6'));
+      }
+    }catch(err){}
+
+    try{
+      const p1 = m1.parentNode, p2 = m2.parentNode;
+      const nuovo = document.createRange();
+      nuovo.setStartAfter(m1);
+      nuovo.setEndBefore(m2);
+      sel.removeAllRanges(); sel.addRange(nuovo);
+      m1.remove(); m2.remove();
+      [p1,p2].forEach(p=>{
+        if(p && p.nodeType===1 && /^(P|DIV|LI|H1|H2|H3|H4|H5|H6)$/.test(p.tagName) && !p.childNodes.length)
+          p.appendChild(document.createElement('br'));
+      });
+    }catch(err){
+      try{ m1.remove(); m2.remove(); }catch(e){}
+    }
+    salvaRange();
+  };
+
+  /* l'editor a volte infila l'elenco dentro il paragrafo: lo rimetto al suo posto */
+  const sistemaElenchi = () => {
+    if(!ref.current) return;
+    Array.from(ref.current.querySelectorAll('p > ul, p > ol, h1 > ul, h1 > ol, h2 > ul, h2 > ol, h3 > ul, h3 > ol'))
+      .forEach(l=>{
+        const p = l.parentElement;
+        if(!p || !p.parentNode) return;
+        p.parentNode.insertBefore(l, p);
+        if(!p.textContent.replace(/\u00a0/g,'').trim() && !p.querySelector('table,img,ul,ol')) p.remove();
+      });
+  };
+
+  /* il contenitore di righe in cui sta il cursore: il foglio, un gruppo o una cella */
+  const contenitoreDelCursore = (nodo) => {
+    const sel = window.getSelection();
+    let n = nodo || (sel && sel.anchorNode);
+    if(!n || !ref.current.contains(n)) return ref.current;
+    if(n.nodeType === 3) n = n.parentElement;
+    while(n && n !== ref.current && !n.classList.contains('grp-c') && n.tagName !== 'TD' && n.tagName !== 'TH')
+      n = n.parentElement;
+    return n || ref.current;
+  };
+
+  /* dopo un comando di blocco rimetto in ordine: elenchi fuori dai paragrafi
+     e righe rimaste sciolte di nuovo dentro un paragrafo loro */
+  const riordinaBlocchi = () => {
+    sistemaElenchi();
+    impaginaSciolti(contenitoreDelCursore());
+  };
+
   const cmd = (c,v)=>{
     if(STILE_CMD[c] && applicaStileCelle(STILE_CMD[c], true)) return;   // celle selezionate
-    ref.current.focus(); document.execCommand(c,false,v||null); emit();
+    ref.current.focus();
+    // elenchi e titoli valgono solo per la riga del cursore, non per quelle scritte sopra
+    const eBlocco = /^(insertUnorderedList|insertOrderedList|formatBlock)$/.test(c);
+    if(eBlocco) perRigheProprie();
+    document.execCommand(c,false,v||null);
+    if(eBlocco) riordinaBlocchi();
+    emit();
   };
 
   /* applica stili alle celle selezionate, senza entrarci dentro (come nel foglio di calcolo) */
@@ -1570,7 +1703,9 @@ function RichText({value, onChange, placeholder, docKey}){
       emit(true); return;
     }
     if(!lista){
+      perRigheProprie();
       document.execCommand('insertUnorderedList');
+      riordinaBlocchi();
       lista = listaCorrente();
     }
     if(!lista){ alert('Non sono riuscito a creare l\'elenco: metti il cursore su una riga di testo.'); return; }
