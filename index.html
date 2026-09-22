@@ -349,7 +349,13 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button{border:1px solid transparent;background:var(--accent-soft);border-radius:4px;padding:4px 9px;
   font-size:12.5px;color:#255840;line-height:1.2}
 .rt-ctx button:hover{background:#255840;color:#fff}
-.rt-ctx{flex-wrap:wrap;max-width:min(420px,92vw)}
+.rt-ctx{flex-wrap:wrap;max-width:100%}
+.num-pop{position:absolute;z-index:9;display:flex;gap:3px;align-items:center;padding:3px 4px;background:var(--paper);
+  border:1px solid #c9ded2;border-radius:6px;box-shadow:0 3px 10px rgba(23,33,29,.14);font-size:12px;white-space:nowrap}
+.num-pop .num-ico{font-family:var(--sans);font-weight:600;color:#255840;padding:0 5px;border-right:1px solid #d5e3da;margin-right:2px}
+.num-pop button{border:1px solid transparent;background:none;border-radius:4px;padding:3px 8px;font-size:12px;color:#255840;line-height:1.2}
+.num-pop button:hover{background:var(--accent-soft)}
+.num-pop button.attivo{background:var(--accent-soft);border-color:#b9d3c3;font-weight:600}
 .rt-ctx .sep{width:1px;align-self:stretch;background:#d5e3da;margin:0 2px}
 .ink-cell{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #b9c7bf;vertical-align:-2px}
 .rt-ctx .split-main{padding-right:5px}
@@ -1280,6 +1286,7 @@ function RichText({value, onChange, placeholder, docKey}){
     document.execCommand(c,false,v||null);
     if(eBlocco) riordinaBlocchi();
     emit();
+    if(c === 'insertOrderedList') setTimeout(()=>proponiNumerazione(), 0);
   };
 
   /* applica stili alle celle selezionate, senza entrarci dentro (come nel foglio di calcolo) */
@@ -1735,6 +1742,107 @@ function RichText({value, onChange, placeholder, docKey}){
     return true;
   };
 
+  /* ═══ numerazione: continua o ricomincia (come il pulsantino di Word) ═══
+     Quando nasce un elenco numerato, o si clicca sulla sua prima voce, compare un riquadrino
+     accanto alla riga: si sceglie se proseguire dal numero dell'elenco precedente o ripartire da 1. */
+  const [numPop, setNumPop] = useState(null);
+  const numRef = useRef(null);                 // {li, ol} su cui agisce il riquadrino
+  const inizioDi = ol => { const v = parseInt(ol.getAttribute('start'), 10); return isNaN(v) ? 1 : v; };
+  const vociDi = ol => Array.from(ol.children).filter(x=>x.tagName === 'LI').length;
+  const zonaDi = el => el.closest('.grp-c, td, th') || ref.current;
+  const olPrecedente = (ol) => {
+    const zona = zonaDi(ol);
+    const tutte = Array.from(ref.current.querySelectorAll('ol'))
+      .filter(o => o !== ol && !o.parentElement.closest('li') && zonaDi(o) === zona
+        && (o.compareDocumentPosition(ol) & Node.DOCUMENT_POSITION_FOLLOWING));
+    return tutte.length ? tutte[tutte.length - 1] : null;
+  };
+  const liNumeratoCorrente = () => {
+    const sel = window.getSelection();
+    let n = sel && sel.anchorNode;
+    if(!n || !ref.current || !ref.current.contains(n)) return null;
+    if(n.nodeType === 3) n = n.parentElement;
+    const li = n.closest && n.closest('li');
+    return (li && li.parentElement && li.parentElement.tagName === 'OL' && ref.current.contains(li)) ? li : null;
+  };
+  const proponiNumerazione = (soloSePrima) => {
+    const li = liNumeratoCorrente();
+    if(!li || !wrapRef.current){ setNumPop(null); return; }
+    const ol = li.parentElement;
+    if(ol.parentElement && ol.parentElement.closest('li')){ setNumPop(null); return; }   // sottoelenco: niente
+    const voci = Array.from(ol.children).filter(x=>x.tagName === 'LI');
+    const primo = voci[0] === li;
+    if(soloSePrima && !primo){ setNumPop(null); return; }
+    const prec = primo ? olPrecedente(ol) : null;
+    // scelta possibile solo se c'è un elenco prima da continuare, o se l'elenco non parte da 1
+    if(primo && !prec && inizioDi(ol) === 1){ setNumPop(null); return; }
+    const continuaDa = primo ? (prec ? inizioDi(prec) + vociDi(prec) : null) : inizioDi(ol) + voci.indexOf(li);
+    const continuato = primo ? (prec ? inizioDi(ol) === continuaDa : false) : true;
+    // accanto alla fine del testo della riga: non copre né la riga sopra né quella sotto
+    const w = wrapRef.current.getBoundingClientRect();
+    const rl = li.getBoundingClientRect();
+    let destra = rl.left;
+    try{
+      const rr = document.createRange(); rr.selectNodeContents(li);
+      const rett = Array.from(rr.getClientRects()).filter(x=>x.width || x.height);
+      if(rett.length) destra = Math.max(...rett.filter(x=>x.top < rl.top + 30).map(x=>x.right));
+    }catch(err){}
+    const larghezza = 250;
+    let left = destra - w.left + 14;
+    if(left + larghezza > w.width) left = Math.max(0, w.width - larghezza);
+    numRef.current = {li, ol};
+    setNumPop({ top: rl.top - w.top - 3, left, continuaDa, continuato, primo });
+  };
+  const sceltaNumerazione = (continua) => {
+    const d = numRef.current;
+    setNumPop(null);
+    if(!d || !d.li.isConnected) return;
+    const {li} = d;
+    const ol = li.parentElement;
+    const voci = Array.from(ol.children).filter(x=>x.tagName === 'LI');
+    if(voci[0] === li){
+      if(continua){
+        const prec = olPrecedente(ol);
+        if(prec){
+          const n = inizioDi(prec) + vociDi(prec);
+          if(n === 1) ol.removeAttribute('start'); else ol.setAttribute('start', n);
+        }
+      } else ol.removeAttribute('start');
+    } else if(!continua){
+      // la voce si era attaccata all'elenco di sopra: da qui in giù diventa un elenco nuovo che parte da 1
+      const nuovo = document.createElement('ol');
+      if(ol.getAttribute('style')) nuovo.setAttribute('style', ol.getAttribute('style'));
+      if(ol.className) nuovo.className = ol.className;
+      ol.parentNode.insertBefore(nuovo, ol.nextSibling);
+      let x = li;
+      while(x){ const dopo = x.nextSibling; nuovo.appendChild(x); x = dopo; }
+    }
+    // il cursore torna alla fine della voce
+    try{
+      ref.current.focus();
+      const r = document.createRange(); r.selectNodeContents(li); r.collapse(false);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      salvaRange();
+    }catch(err){}
+    emit(true);
+  };
+  useEffect(()=>{
+    if(!numPop) return;
+    const chiudi = e => { if(!(e.target.closest && e.target.closest('.num-pop'))) setNumPop(null); };
+    const tasto = e => { if(e.key === 'Escape') setNumPop(null); };
+    const sposta = () => setNumPop(null);
+    document.addEventListener('mousedown', chiudi, true);
+    document.addEventListener('touchstart', chiudi, true);
+    document.addEventListener('keydown', tasto, true);
+    window.addEventListener('scroll', sposta, true);
+    return () => {
+      document.removeEventListener('mousedown', chiudi, true);
+      document.removeEventListener('touchstart', chiudi, true);
+      document.removeEventListener('keydown', tasto, true);
+      window.removeEventListener('scroll', sposta, true);
+    };
+  },[numPop]);
+
   /* "- " oppure "1. " a inizio riga diventano un elenco */
   const scorciatoiaElenco = (e) => {
     if(e.key !== ' ') return false;
@@ -1749,10 +1857,22 @@ function RichText({value, onChange, placeholder, docKey}){
     if(!puntato && !numerato) return false;
     e.preventDefault();
     n.textContent = n.textContent.slice(sel.anchorOffset);   // via il segno digitato
-    const r = document.createRange(); r.setStart(n, 0); r.collapse(true);
+    /* Se la riga resta vuota, il nodo di testo vuoto non tiene il cursore: il browser lo
+       spostava alla fine della riga sopra, e l'elenco finiva sul titolo (col testo attaccato lì).
+       Metto un a capo segnaposto, così il cursore resta sulla sua riga. */
+    const r = document.createRange();
+    if(!n.textContent){
+      const br = document.createElement('br');
+      n.parentNode.replaceChild(br, n);
+      r.setStartBefore(br);
+    } else r.setStart(n, 0);
+    r.collapse(true);
     sel.removeAllRanges(); sel.addRange(r);
+    perRigheProprie();                     // l'elenco vale solo per questa riga
     document.execCommand(puntato ? 'insertUnorderedList' : 'insertOrderedList');
+    riordinaBlocchi();
     emit();
+    if(!puntato) setTimeout(proponiNumerazione, 0);
     return true;
   };
 
@@ -2058,16 +2178,34 @@ function RichText({value, onChange, placeholder, docKey}){
     ref.current.focus();
   };
 
+  /* ═══ dove mettere i comandi della tabella ═══
+     Mai sopra le celle: prima provo nello spazio libero sopra la tabella, poi sotto;
+     se la tabella è più alta dello schermo resta agganciata sotto la barra degli strumenti.
+     L'altezza è quella vera del riquadro (va a capo su più righe), non una stima. */
+  const boxRef = useRef(null);
+  const cellaBoxRef = useRef(null);
   const posizionaBox = (cell) => {
     const tab = cell && cell.closest('table');
     if(!tab || !wrapRef.current){ setTblBox(null); return; }
+    cellaBoxRef.current = cell;
     const t = tab.getBoundingClientRect();
     const w = wrapRef.current.getBoundingClientRect();
-    const inTesta = !!cell.closest('thead') || cell.tagName === 'TH';
-    const spazioSopra = t.top > 130;   // sopra deve restarci spazio, sotto la barra strumenti
-    const metti = (!inTesta && spazioSopra) ? (t.top - w.top - 40) : (t.bottom - w.top + 8);
-    setTblBox({ top: metti, left: Math.max(0, t.left - w.left) });
+    const h = boxRef.current ? boxRef.current.offsetHeight : 44;
+    const barra = wrapRef.current.parentNode && wrapRef.current.parentNode.querySelector('.rt-tools');
+    const tetto = barra ? barra.getBoundingClientRect().bottom : 0;   // sotto qui si vede davvero
+    const fondo = window.innerHeight;
+    let top;
+    if(t.top - h - 8 >= tetto) top = t.top - w.top - h - 6;                 // sopra la tabella
+    else if(t.bottom + h + 8 <= fondo) top = t.bottom - w.top + 6;          // sotto la tabella
+    else top = Math.max(tetto, 0) - w.top + 4;                               // tabella lunga: sotto la barra
+    setTblBox({ top, left: Math.max(0, t.left - w.left), h });
   };
+  // appena disegnato conosco l'altezza vera: se era diversa da quella usata, ricalcolo
+  React.useLayoutEffect(()=>{
+    if(!tblBox || !boxRef.current) return;
+    if(Math.abs(boxRef.current.offsetHeight - tblBox.h) > 1 && cellaBoxRef.current && cellaBoxRef.current.isConnected)
+      posizionaBox(cellaBoxRef.current);
+  });
 
   const checkCtx = () => {
     if(modo === 'sel'){
@@ -3131,8 +3269,20 @@ function RichText({value, onChange, placeholder, docKey}){
       </div>}
 
       <div className="rt-wrap" ref={wrapRef}>
+      {numPop && (
+        <div className="num-pop" style={{top:numPop.top, left:numPop.left}}
+          onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          <span className="num-ico" title="Numerazione">1.</span>
+          {numPop.continuaDa !== null && (
+            <button className={numPop.continuato?'attivo':''} onClick={()=>sceltaNumerazione(true)}
+              title="Prosegui la numerazione dell'elenco precedente">Continua da {numPop.continuaDa}</button>
+          )}
+          <button className={!numPop.continuato?'attivo':''} onClick={()=>sceltaNumerazione(false)}
+            title="Fai ripartire l'elenco da 1">Ricomincia da 1</button>
+        </div>
+      )}
       {inTable && tblBox && (
-        <div className="rt-ctx" style={{top:tblBox.top, left:tblBox.left}}
+        <div className="rt-ctx" ref={boxRef} style={{top:tblBox.top, left:tblBox.left}}
           onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
           <button onClick={addRow}>+ riga</button>
           <button onClick={delRow}>− riga</button>
@@ -3293,7 +3443,7 @@ function RichText({value, onChange, placeholder, docKey}){
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
         }}
         data-ph={placeholder||'Scrivi qui…'}
-        onInput={emit}
+        onInput={()=>{ if(numPop) setNumPop(null); emit(); }}
         onKeyDown={e=>{
           // copia formato: Alt+O carica il pennello, Ctrl/Cmd+Maiusc+C copia, +V applica
           if(e.altKey && (e.key === 'o' || e.key === 'O' || e.code === 'KeyO')){
@@ -3330,6 +3480,7 @@ function RichText({value, onChange, placeholder, docKey}){
         onMouseUp={()=>{
           trascina.current = false;
           checkCtx(); salvaRange();
+          { const sl = window.getSelection(); if(sl && sl.isCollapsed) setTimeout(()=>proponiNumerazione(true), 0); }
           if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
         }}
         onTouchEnd={()=>{
