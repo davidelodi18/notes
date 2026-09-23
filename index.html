@@ -1075,6 +1075,15 @@ function Palette({colori, onPick, onClear, etichetta, evid, recenti, onCustom}){
 
 function RichText({value, onChange, placeholder, docKey}){
   const ref = useRef(null);
+  /* ═══ a quale foglio appartiene quello che c'è nell'editor ═══
+     L'editor è sempre lo stesso: cambiando foglio si sostituisce solo il contenuto.
+     Alcune operazioni partono in ritardo (uscita dalla cella, ricalcolo delle formule…)
+     e prima si portavano dietro il foglio vecchio, salvando lì il testo di quello nuovo.
+     Ora ogni salvataggio dichiara il foglio di cui c'è davvero il contenuto a video. */
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const docNelDom = useRef(docKey);
+  const avvisa = (html) => onChangeRef.current(html, docNelDom.current);
   const fileRef = useRef(null);
   const [inTable,setInTable] = useState(false);
   const [busy,setBusy] = useState('');
@@ -1098,6 +1107,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   useEffect(()=>{
     if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
+    docNelDom.current = docKey;               // da qui in poi l'editor contiene questo foglio
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
     storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
@@ -1146,7 +1156,7 @@ function RichText({value, onChange, placeholder, docKey}){
       .replace(/ class="cella-attiva"/g, '')
       .replace(/(class="[^"]*?)\s*cella-(?:sel|attiva)/g, '$1');
     registra(html, subito === true);
-    onChange(html);
+    avvisa(html);
   };
   const STILE_CMD = {
     bold: {fontWeight:'bold'}, italic: {fontStyle:'italic'}, underline: {textDecoration:'underline'}
@@ -2949,7 +2959,7 @@ function RichText({value, onChange, placeholder, docKey}){
     const st = storia.current;
     st.bloccato = true;
     ref.current.innerHTML = html;
-    onChange(html);
+    avvisa(html);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     setTimeout(()=>{ st.bloccato = false; aggiornaFrecce(); }, 60);
   };
@@ -4236,22 +4246,40 @@ function App(){
     saveDoc(doc.id, {...doc, ...patch, aggiornato: nowISO()});
   };
 
-  /* editor rich text con debounce */
+  /* editor rich text con debounce
+     Il testo in attesa è sempre legato al foglio da cui arriva (lo dice l'editor),
+     non a quello aperto quando parte il timer. Cambiando foglio, quello in attesa si salva subito. */
   const bodyTimer = useRef(null);
-  const onBody = (html) => {
+  const corpoInAttesa = useRef(null);          // {id, html}
+  const documentiRef = useRef(documenti);
+  documentiRef.current = documenti;
+  const salvaCorpo = () => {
     clearTimeout(bodyTimer.current);
-    const idAllora = doc && doc.id;             // il documento aperto in questo momento
-    bodyTimer.current = setTimeout(()=>{
-      const d = documenti[idAllora];
-      if(!d) return;                            // documento sparito nel frattempo
-      saveDoc(d.id, {...d, corpo:html, aggiornato: nowISO()});
-    }, 700);
+    const p = corpoInAttesa.current;
+    corpoInAttesa.current = null;
+    if(!p) return;
+    const d = documentiRef.current[p.id];
+    if(!d || d.corpo === p.html) return;       // foglio sparito o niente di nuovo
+    saveDoc(p.id, {...d, corpo:p.html, aggiornato: nowISO()});
+  };
+  const onBody = (html, idDoc) => {
+    const id = idDoc || (doc && doc.id);
+    if(!id) return;
+    if(corpoInAttesa.current && corpoInAttesa.current.id !== id) salvaCorpo();   // mai mischiare due fogli
+    corpoInAttesa.current = {id, html};
+    clearTimeout(bodyTimer.current);
+    bodyTimer.current = setTimeout(salvaCorpo, 700);
   };
 
-  /* cambiando documento, salvo subito quello che era in attesa */
+  /* cambiando documento, salvo subito quello che era in attesa (prima veniva buttato) */
+  useEffect(()=>{ salvaCorpo(); },[selDoc]);
   useEffect(()=>{
-    return () => { clearTimeout(bodyTimer.current); };
-  },[selDoc]);
+    const via = () => salvaCorpo();
+    const nascosta = () => { if(document.visibilityState === 'hidden') salvaCorpo(); };
+    window.addEventListener('pagehide', via);
+    document.addEventListener('visibilitychange', nascosta);
+    return () => { window.removeEventListener('pagehide', via); document.removeEventListener('visibilitychange', nascosta); };
+  },[]);
 
   const creaDoc = (tipo,tpl,titolo) => {
     // se ho premuto ＋ su una cartella, il documento nasce lì
