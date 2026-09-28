@@ -183,6 +183,30 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .card .m{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .tag{font-size:11px;padding:1px 6px;border-radius:20px;border:1px solid var(--line)}
 .tag.meet{background:var(--accent-soft);border-color:#c9ded2;color:#255840}
+.lav{margin-top:4px}
+.lav-tools{display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:6px 0 8px;position:sticky;top:46px;z-index:8;
+  background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border-bottom:1px solid var(--line-soft);margin-bottom:10px}
+.lav-tools button{border:1px solid transparent;background:none;border-radius:5px;padding:5px 8px;font-size:13px;color:var(--ink-soft);line-height:1.2}
+.lav-tools button:hover{background:var(--accent-soft)}
+.lav-tools button.on{background:var(--accent-soft);border-color:#b9d3c3;color:#255840;font-weight:600}
+.lav-tools button:disabled{opacity:.35}
+.lav-tools select{border:1px solid var(--line);background:var(--paper);border-radius:4px;padding:4px 5px;font-size:12.5px}
+.lav-tools .lav-col{width:22px;height:22px;padding:0;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #c9d4db;display:inline-flex;
+  align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:var(--muted);position:relative;overflow:hidden}
+.lav-tools .lav-col.on{box-shadow:0 0 0 2px var(--accent)}
+.lav-tools .lav-altro{background:#fff}
+.lav-tools .lav-altro input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.lav-sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+.lav-spacer{flex:1}
+.lav-tools .lav-del{color:var(--red)}
+.lav-foglio{position:relative;width:100%;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff;
+  box-shadow:0 1px 4px rgba(23,33,29,.06)}
+.lav-foglio canvas{display:block}
+.lav-sopra{position:absolute;left:0;top:0;touch-action:none;cursor:crosshair;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.lav-sopra.gomma{cursor:cell}
+@media (max-width:720px){ .lav-tools{top:44px} .lav-tools button span{display:none} .lav-tools button{padding:7px 9px;font-size:15px} }
+.tag.draw{background:#f3eefb;border-color:#e0d4f2;color:#6b4a9a}
+
 .tag.todo{background:var(--amber-soft);border-color:#ecd9b8;color:var(--amber)}
 .tag.arch{background:#eef1f4;border-color:#d4dce3;color:#4f6577}
 .tag.cest{background:#f7e9e8;border-color:#e8cfcd;color:var(--red)}
@@ -590,6 +614,7 @@ const emptyDoc = (sezioneId, tipo, tpl) => ({
   decisioni: [],
   azioni: [],
   corpo:'',
+  ...(tipo==='disegno' ? {disegno:{tratti:[], h:1414, sfondo:'bianco'}} : {}),
   stato: tipo==='riunione' ? 'da preparare' : '',
   creato: nowISO(), aggiornato: nowISO()
 });
@@ -672,6 +697,15 @@ function docToHtml(doc, sezione){
     if(doc.azioni && doc.azioni.length){
       h += azioniHtml(doc.azioni);
     }
+  } else if(doc.tipo==='disegno'){
+    if(doc.data || doc.obiettivo){
+      const meta=[];
+      if(doc.data) meta.push(['Data', fmtDate(doc.data)]);
+      if(doc.obiettivo) meta.push(['In sintesi', doc.obiettivo]);
+      h += '<table class="meta">' + meta.map(([k,v])=>`<tr><td class="k">${e(k)}</td><td>${e(v)}</td></tr>`).join('') + '</table>';
+    }
+    const png = disegnoPng(doc.disegno);
+    if(png) h += `<p><img src="${png}" style="width:100%;max-width:100%;border:1px solid #e3e8ea"></p>`;
   } else {
     if(doc.data || doc.obiettivo){
       const meta=[];
@@ -1041,8 +1075,13 @@ const SEGNI_NUM = [
   {n:'A. B. C.',   v:'upper-alpha', e:'A.'}
 ];
 const INTERLINEE = [
+  {n:'Singola',  v:'1'},    {n:'Stretta',  v:'1.15'},
   {n:'Compatta', v:'1.25'}, {n:'Normale', v:'1.5'},
   {n:'Ampia',    v:'1.8'},  {n:'Doppia',  v:'2.2'}
+];
+/* spazio sopra e sotto il paragrafo (quello che separa un titolo dalla riga successiva) */
+const SPAZI = [
+  {n:'Nessuno', v:'0px'}, {n:'Piccolo', v:'4px'}, {n:'Medio', v:'10px'}, {n:'Grande', v:'20px'}
 ];
 
 /* piccola tendina con i campioni di colore */
@@ -1748,6 +1787,51 @@ function RichText({value, onChange, placeholder, docKey}){
     salvaRange();
     emit(true); setPal(null); ref.current.focus();
   };
+  /* ═══ spazio prima / dopo il paragrafo ═══
+     L'interlinea è lo spazio DENTRO la riga; la distanza tra un titolo e la riga sotto
+     è invece il margine dei paragrafi: si regola qui, come "Spaziatura prima/dopo" di Word. */
+  const setSpazio = (lato, v) => {
+    ref.current.focus(); ripristinaRange();
+    const righe = righeDellaSelezione();
+    if(!righe.length){ setPal(null); alert('Metti il cursore nella riga, o seleziona le righe, di cui cambiare lo spazio.'); return; }
+    const k = lato === 'prima' ? 'marginTop' : 'marginBottom';
+    righe.forEach(el=>{
+      if(v !== null) el.style[k] = v; else el.style.removeProperty(k === 'marginTop' ? 'margin-top' : 'margin-bottom');
+      if(!el.getAttribute('style')) el.removeAttribute('style');
+    });
+    salvaRange();
+    emit(true); setPal(null); ref.current.focus();
+  };
+  /* attacca la riga a quella di sopra: niente spazio né sotto la riga sopra né sopra questa */
+  const attaccaSopra = () => {
+    ref.current.focus(); ripristinaRange();
+    const righe = righeDellaSelezione();
+    if(!righe.length){ setPal(null); alert('Metti il cursore nella riga da avvicinare a quella di sopra.'); return; }
+    const prima = righe[0];
+    // la riga sopra: il blocco che precede (se questa è la prima voce di un elenco, quello che precede l'elenco)
+    let base = prima;
+    if(prima.tagName === 'LI' && !prima.previousElementSibling && prima.parentElement) base = prima.parentElement;
+    let sopra = base.previousElementSibling;
+    while(sopra && !sopra.textContent.replace(/[\s\u00a0]/g,'') && !sopra.querySelector('img,table')) sopra = sopra.previousElementSibling;
+    base.style.marginTop = '0px';
+    if(base !== prima) prima.style.marginTop = '0px';
+    if(sopra){
+      sopra.style.marginBottom = '0px';
+      if(/^(UL|OL)$/.test(sopra.tagName) && sopra.lastElementChild) sopra.lastElementChild.style.marginBottom = '0px';
+    }
+    salvaRange();
+    emit(true); setPal(null); ref.current.focus();
+  };
+  const spazioAttuale = (lato) => {
+    const r = rangeRef.current;
+    let n = r && r.startContainer;
+    if(!n || !ref.current || !ref.current.contains(n)) return '';
+    if(n.nodeType === 3) n = n.parentNode;
+    const b = n.closest && n.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,figcaption,td,th');
+    if(!b || !ref.current.contains(b)) return '';
+    return lato === 'prima' ? b.style.marginTop : b.style.marginBottom;
+  };
+
   /* l'interlinea della riga dove sta il cursore, per segnarla nel menu */
   const interlineaAttuale = () => {
     const r = rangeRef.current;
@@ -3622,9 +3706,10 @@ function RichText({value, onChange, placeholder, docKey}){
         </span>
 
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Spaziatura tra le righe">↕</button>
+          <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Interlinea e spazio tra i paragrafi">↕</button>
           {pal==='riga' && (
             <div className="pal" onMouseDown={e=>e.preventDefault()}>
+              <div className="pal-tit">Interlinea</div>
               {(()=>{ const att = interlineaAttuale(); return (<>
                 {INTERLINEE.map(x=>(
                   <button key={x.v} className={'pal-riga'+(att===x.v?' scelta':'')} onClick={()=>setInterlinea(x.v)}>
@@ -3633,6 +3718,21 @@ function RichText({value, onChange, placeholder, docKey}){
                 ))}
                 <button className="pal-clear" onClick={()=>setInterlinea(null)}>{!att ? '✓ ' : ''}Predefinita · 1,65</button>
               </>); })()}
+              <button className="pal-riga" style={{fontWeight:600,marginTop:6}} onClick={attaccaSopra}
+                title="Toglie lo spazio tra questa riga e quella di sopra (es. sotto un titolo)">⤒ Avvicina alla riga sopra</button>
+              {['prima','dopo'].map(lato=>{ const att = spazioAttuale(lato); return (
+                <div key={lato}>
+                  <div className="pal-tit">Spazio {lato === 'prima' ? 'sopra' : 'sotto'} il paragrafo</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                    {SPAZI.map(x=>(
+                      <button key={x.v} className="pal-riga" style={{width:'auto',flex:'1 1 45%'}} onClick={()=>setSpazio(lato, x.v)}>
+                        {att===x.v ? '✓ ' : ''}{x.n}
+                      </button>
+                    ))}
+                  </div>
+                  <button className="pal-clear" onClick={()=>setSpazio(lato, null)}>{!att ? '✓ ' : ''}Predefinito</button>
+                </div>
+              ); })}
             </div>
           )}
         </span>
@@ -4121,7 +4221,7 @@ function NewDocModal({onCreate, onClose}){
         <div className="f">
           <label>Titolo</label>
           <input autoFocus value={titolo} onChange={e=>setTitolo(e.target.value)}
-            placeholder={tipo==='riunione'?'Es. Riunione chiusura agosto':'Es. Appunti analisi margini'}
+            placeholder={tipo==='riunione'?'Es. Riunione chiusura agosto':tipo==='disegno'?'Es. Schema flusso scadenziario':'Es. Appunti analisi margini'}
             onKeyDown={e=>{if(e.key==='Enter') onCreate(tipo,tipo==='riunione'?tpl:null,titolo.trim());}}/>
         </div>
         <div className="f">
@@ -4129,6 +4229,7 @@ function NewDocModal({onCreate, onClose}){
           <select value={tipo} onChange={e=>setTipo(e.target.value)}>
             <option value="riunione">Riunione — agenda, decisioni, attività</option>
             <option value="nota">Appunto — testo libero</option>
+            <option value="disegno">Disegno — schizzi a mano libera (mouse, dito, penna)</option>
           </select>
         </div>
         {tipo==='riunione' && (
@@ -4309,6 +4410,380 @@ function SpostaModal({quanti, radici, figlieDi, correnteId, onSposta, onClose}){
 }
 
 /* ═══════════ login ═══════════ */
+/* ═══════════ LAVAGNA: fogli da disegnare (PC, iPad, telefono) ═══════════
+   Il disegno è salvato come tratti (non come immagine): pesa poco nel database,
+   resta nitido a ogni dimensione e si vede uguale su tutti i dispositivi.
+   Le coordinate sono "logiche": il foglio è largo sempre 1000 unità, qualunque sia lo schermo. */
+const LAV_W = 1000;
+const LAV_PAGINA = 1414;                 // proporzioni di un A4
+const LAV_COLORI = ['#17211d','#2f6f4e','#1f5fbf','#c0392b','#e67e22','#8e44ad','#7f8c8d'];
+const LAV_EVID = ['#fff176','#a5d6a7','#90caf9','#f8bbd0'];
+const LAV_SPESSORI = [{n:'Fine',v:2},{n:'Media',v:4},{n:'Grossa',v:8},{n:'Pennarello',v:14}];
+const LAV_SFONDI = [{n:'Bianco',v:'bianco'},{n:'A righe',v:'righe'},{n:'A quadretti',v:'quadretti'},{n:'A puntini',v:'puntini'}];
+
+function lavSfondo(ctx, sfondo, h){
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, LAV_W, h);
+  ctx.save();
+  if(sfondo === 'righe' || sfondo === 'quadretti'){
+    ctx.strokeStyle = sfondo === 'righe' ? '#dbe6ee' : '#e6edf2';
+    ctx.lineWidth = 1;
+    const passo = sfondo === 'righe' ? 40 : 25;
+    ctx.beginPath();
+    for(let y = passo; y < h; y += passo){ ctx.moveTo(0, y); ctx.lineTo(LAV_W, y); }
+    if(sfondo === 'quadretti') for(let x = passo; x < LAV_W; x += passo){ ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    ctx.stroke();
+  } else if(sfondo === 'puntini'){
+    ctx.fillStyle = '#c9d4db';
+    for(let y = 25; y < h; y += 25) for(let x = 25; x < LAV_W; x += 25){ ctx.fillRect(x - 1, y - 1, 2, 2); }
+  }
+  // separatore tra le pagine, leggero
+  ctx.strokeStyle = '#eef2f4'; ctx.setLineDash([6, 6]); ctx.lineWidth = 1;
+  ctx.beginPath();
+  for(let y = LAV_PAGINA; y < h; y += LAV_PAGINA){ ctx.moveTo(0, y); ctx.lineTo(LAV_W, y); }
+  ctx.stroke();
+  ctx.restore();
+}
+function lavTratto(ctx, tr){
+  const p = tr.p || [];
+  if(p.length < 2) return;
+  ctx.save();
+  ctx.globalAlpha = tr.t === 'evid' ? 0.4 : 1;
+  ctx.strokeStyle = tr.c; ctx.fillStyle = tr.c;
+  ctx.lineWidth = tr.w; ctx.lineCap = tr.t === 'evid' ? 'butt' : 'round'; ctx.lineJoin = 'round';
+  if(p.length === 2){
+    ctx.beginPath(); ctx.arc(p[0], p[1], tr.w / 2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+    // curve morbide passando per i punti di mezzo
+    for(let i = 2; i < p.length - 2; i += 2){
+      const mx = (p[i] + p[i+2]) / 2, my = (p[i+1] + p[i+3]) / 2;
+      ctx.quadraticCurveTo(p[i], p[i+1], mx, my);
+    }
+    ctx.lineTo(p[p.length-2], p[p.length-1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+/* immagine del disegno, per Word e PDF */
+function disegnoPng(dis){
+  try{
+    const d = dis || {};
+    const tratti = d.tratti || [];
+    // alto quanto serve: fino all'ultimo tratto (almeno mezza pagina)
+    let maxY = 400;
+    tratti.forEach(t=>{ const p = t.p || []; for(let i = 1; i < p.length; i += 2) if(p[i] > maxY) maxY = p[i]; });
+    const h = Math.min(d.h || LAV_PAGINA, Math.ceil(maxY + 60));
+    const c = document.createElement('canvas');
+    const k = 1.4;
+    c.width = Math.round(LAV_W * k); c.height = Math.round(h * k);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    lavSfondo(ctx, d.sfondo || 'bianco', h);
+    tratti.forEach(t=>lavTratto(ctx, t));
+    return c.toDataURL('image/png');
+  }catch(e){ return ''; }
+}
+
+function Lavagna({value, onChange, docKey}){
+  const leggi = (v) => ({ tratti: (v && Array.isArray(v.tratti)) ? v.tratti.filter(t=>t && t.p) : [],
+                          h: (v && v.h) || LAV_PAGINA, sfondo: (v && v.sfondo) || 'bianco' });
+  const [dis, setDis] = useState(()=>leggi(value));
+  const disRef = useRef(dis); disRef.current = dis;
+  const [strumento, setStrumento] = useState('penna');     // penna · evid · gomma
+  const [colore, setColore] = useState(LAV_COLORI[0]);
+  const [coloreEvid, setColoreEvid] = useState(LAV_EVID[0]);
+  const [spessore, setSpessore] = useState(4);
+  const [ditoScorre, setDitoScorre] = useState(()=> !!local.get('quaderno:ditoScorre'));
+  const ditoRef = useRef(ditoScorre); ditoRef.current = ditoScorre;
+  const wrapRef = useRef(null), cRef = useRef(null), oRef = useRef(null);
+  const scalaRef = useRef(1);
+  const correnteRef = useRef(null);         // tratto in corso
+  const scorriRef = useRef(null);           // dito che fa scorrere
+  const cancellatiRef = useRef(false);
+  const storia = useRef({passi:[], avanti:[]});
+  const [, forza] = useState(0);
+  const inviato = useRef(JSON.stringify(leggi(value)));
+  const timer = useRef(null);
+
+  /* salvataggio: poco dopo l'ultimo tratto */
+  const salva = (nuovo, subito) => {
+    clearTimeout(timer.current);
+    const invia = () => { const s = JSON.stringify(nuovo); inviato.current = s; onChange(nuovo); };
+    if(subito) invia(); else timer.current = setTimeout(invia, 500);
+  };
+  const cambia = (nuovo, conStoria=true) => {
+    if(conStoria){
+      const st = storia.current;
+      st.passi.push(disRef.current); if(st.passi.length > 80) st.passi.shift();
+      st.avanti = [];
+    }
+    disRef.current = nuovo;
+    setDis(nuovo);
+    salva(nuovo);
+  };
+  // cambiando foglio riparto pulito; un aggiornamento da un altro dispositivo lo prendo se non sto disegnando
+  useEffect(()=>{
+    const d = leggi(value);
+    inviato.current = JSON.stringify(d);
+    storia.current = {passi:[], avanti:[]};
+    setDis(d); disRef.current = d;
+  }, [docKey]);
+  useEffect(()=>{
+    if(correnteRef.current) return;
+    const d = leggi(value);
+    const s = JSON.stringify(d);
+    if(s !== inviato.current && s !== JSON.stringify(disRef.current)){
+      inviato.current = s; setDis(d); disRef.current = d;
+    }
+  }, [value]);
+  useEffect(()=>()=>{ clearTimeout(timer.current); }, []);
+  // se esco dal foglio con un salvataggio in attesa, lo mando subito
+  useEffect(()=>()=>{
+    if(timer.current){ clearTimeout(timer.current); const s = JSON.stringify(disRef.current); if(s !== inviato.current) onChange(disRef.current); }
+  }, [docKey]);
+
+  /* disegno a video */
+  const ridisegna = () => {
+    const c = cRef.current, w = wrapRef.current;
+    if(!c || !w) return;
+    const dpr = window.devicePixelRatio || 1;
+    const larg = w.clientWidth;
+    const scala = larg / LAV_W;
+    scalaRef.current = scala;
+    const d = disRef.current;
+    const altPx = Math.round(d.h * scala);
+    [c, oRef.current].forEach(x=>{
+      if(!x) return;
+      const W = Math.round(larg * dpr), H = Math.round(altPx * dpr);
+      if(x.width !== W) x.width = W;
+      if(x.height !== H) x.height = H;
+      x.style.width = larg + 'px'; x.style.height = altPx + 'px';
+    });
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr * scala, 0, 0, dpr * scala, 0, 0);
+    lavSfondo(ctx, d.sfondo, d.h);
+    d.tratti.forEach(t=>lavTratto(ctx, t));
+  };
+  useEffect(()=>{ ridisegna(); });
+  useEffect(()=>{
+    const w = wrapRef.current;
+    if(!w || !window.ResizeObserver) return;
+    const ro = new ResizeObserver(()=>ridisegna());
+    ro.observe(w);
+    return () => ro.disconnect();
+  }, []);
+  const disegnaCorrente = () => {
+    const o = oRef.current; if(!o) return;
+    const dpr = window.devicePixelRatio || 1, k = dpr * scalaRef.current;
+    const ctx = o.getContext('2d');
+    ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0, 0, o.width, o.height);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    if(correnteRef.current) lavTratto(ctx, correnteRef.current);
+  };
+
+  /* coordinate logiche del puntatore */
+  const punto = (e) => {
+    const r = cRef.current.getBoundingClientRect();
+    const s = scalaRef.current || 1;
+    return [Math.round(((e.clientX - r.left) / s) * 10) / 10, Math.round(((e.clientY - r.top) / s) * 10) / 10];
+  };
+  const contenitoreScorrevole = () => {
+    let x = wrapRef.current && wrapRef.current.parentElement;
+    while(x && x !== document.body){
+      const st = getComputedStyle(x);
+      if(/(auto|scroll)/.test(st.overflowY) && x.scrollHeight > x.clientHeight) return x;
+      x = x.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+  const gommaSu = (x, y) => {
+    const d = disRef.current;
+    const raggio = 10 + spessore;
+    const r2 = raggio * raggio;
+    const tocca = (t) => {
+      const p = t.p || [], m = (t.w || 2) / 2;
+      for(let i = 0; i < p.length; i += 2){
+        const dx = p[i] - x, dy = p[i+1] - y;
+        if(dx*dx + dy*dy <= r2 + m*m + 2*raggio*m) return true;
+        // anche lungo il segmento tra due punti lontani
+        if(i + 3 < p.length){
+          const ax = p[i], ay = p[i+1], bx = p[i+2], by = p[i+3];
+          const vx = bx-ax, vy = by-ay, l2 = vx*vx+vy*vy;
+          if(l2 > 16){
+            let tt = ((x-ax)*vx + (y-ay)*vy) / l2; tt = Math.max(0, Math.min(1, tt));
+            const qx = ax + tt*vx - x, qy = ay + tt*vy - y;
+            if(qx*qx + qy*qy <= (raggio+m)*(raggio+m)) return true;
+          }
+        }
+      }
+      return false;
+    };
+    const resto = d.tratti.filter(t=>!tocca(t));
+    if(resto.length !== d.tratti.length){
+      if(!cancellatiRef.current){                       // un solo passo di "annulla" per tutta la passata
+        const st = storia.current; st.passi.push(d); if(st.passi.length > 80) st.passi.shift(); st.avanti = [];
+        cancellatiRef.current = true;
+      }
+      const nuovo = {...d, tratti: resto};
+      disRef.current = nuovo; setDis(nuovo);
+    }
+  };
+
+  const giu = (e) => {
+    if(e.pointerType === 'pen' && !ditoRef.current){ setDitoScorre(true); local.set('quaderno:ditoScorre', true); }
+    if(e.pointerType === 'touch' && ditoRef.current){
+      // con la penna in uso il dito serve a scorrere il foglio
+      scorriRef.current = {id: e.pointerId, y: e.clientY, x: e.clientX, cont: contenitoreScorrevole()};
+      e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    if(e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+    if(correnteRef.current) return;                     // un solo tratto per volta (niente palmo)
+    e.preventDefault();
+    e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
+    const [x, y] = punto(e);
+    if(strumento === 'gomma'){
+      cancellatiRef.current = false;
+      correnteRef.current = {gomma:true, id:e.pointerId};
+      gommaSu(x, y);
+      return;
+    }
+    const ev = strumento === 'evid';
+    correnteRef.current = { t: ev ? 'evid' : 'penna', c: ev ? coloreEvid : colore,
+      w: ev ? Math.max(14, spessore * 3) : spessore, p:[x, y], id:e.pointerId };
+    disegnaCorrente();
+  };
+  const muovi = (e) => {
+    const sc = scorriRef.current;
+    if(sc && sc.id === e.pointerId){
+      const dy = e.clientY - sc.y, dx = e.clientX - sc.x;
+      sc.y = e.clientY; sc.x = e.clientX;
+      if(sc.cont === document.scrollingElement || sc.cont === document.documentElement) window.scrollBy(-dx, -dy);
+      else { sc.cont.scrollTop -= dy; sc.cont.scrollLeft -= dx; }
+      e.preventDefault();
+      return;
+    }
+    const cur = correnteRef.current;
+    if(!cur || cur.id !== e.pointerId) return;
+    e.preventDefault();
+    const eventi = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+    if(cur.gomma){ eventi.forEach(ev=>{ const [x,y] = punto(ev); gommaSu(x, y); }); return; }
+    eventi.forEach(ev=>{
+      const [x, y] = punto(ev);
+      const p = cur.p, lx = p[p.length-2], ly = p[p.length-1];
+      if((x-lx)*(x-lx) + (y-ly)*(y-ly) >= 1.5) p.push(x, y);
+    });
+    disegnaCorrente();
+  };
+  const su = (e) => {
+    if(scorriRef.current && scorriRef.current.id === e.pointerId){ scorriRef.current = null; return; }
+    const cur = correnteRef.current;
+    if(!cur || cur.id !== e.pointerId) return;
+    correnteRef.current = null;
+    if(cur.gomma){
+      if(cancellatiRef.current){ salva(disRef.current); forza(n=>n+1); }
+      cancellatiRef.current = false;
+      return;
+    }
+    const {id, ...tratto} = cur;
+    const d = disRef.current;
+    // disegnando in fondo, il foglio si allunga da solo
+    let maxY = 0; for(let i = 1; i < tratto.p.length; i += 2) if(tratto.p[i] > maxY) maxY = tratto.p[i];
+    const h = maxY > d.h - 200 ? d.h + Math.round(LAV_PAGINA / 2) : d.h;
+    cambia({...d, h, tratti: [...d.tratti, tratto]});
+    disegnaCorrente();
+  };
+
+  const annulla = () => {
+    const st = storia.current; if(!st.passi.length) return;
+    st.avanti.push(disRef.current);
+    const p = st.passi.pop();
+    disRef.current = p; setDis(p); salva(p);
+  };
+  const ripeti = () => {
+    const st = storia.current; if(!st.avanti.length) return;
+    st.passi.push(disRef.current);
+    const p = st.avanti.pop();
+    disRef.current = p; setDis(p); salva(p);
+  };
+  const svuota = () => {
+    if(!disRef.current.tratti.length) return;
+    if(!confirm('Cancellare tutto il disegno? Puoi comunque tornare indietro con ↶.')) return;
+    cambia({...disRef.current, tratti: []});
+  };
+  const allunga = () => cambia({...disRef.current, h: disRef.current.h + LAV_PAGINA}, false);
+  const accorcia = () => {
+    const d = disRef.current;
+    let maxY = 0; d.tratti.forEach(t=>{ const p = t.p || []; for(let i = 1; i < p.length; i += 2) if(p[i] > maxY) maxY = p[i]; });
+    const h = Math.max(LAV_PAGINA, Math.ceil((maxY + 100) / (LAV_PAGINA/2)) * (LAV_PAGINA/2));
+    if(h < d.h) cambia({...d, h}, false);
+  };
+
+  // i tasti Ctrl/Cmd+Z funzionano anche qui (quando il foglio è in primo piano)
+  useEffect(()=>{
+    const k = (e) => {
+      if(!(e.ctrlKey || e.metaKey) || !wrapRef.current) return;
+      const a = document.activeElement;
+      if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      if(a && a.isContentEditable) return;
+      if(e.key === 'z' || e.key === 'Z'){ e.preventDefault(); e.shiftKey ? ripeti() : annulla(); }
+      else if(e.key === 'y' || e.key === 'Y'){ e.preventDefault(); ripeti(); }
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  }, []);
+
+  const pw = storia.current;
+  const coloriVisti = strumento === 'evid' ? LAV_EVID : LAV_COLORI;
+  const coloreAttivo = strumento === 'evid' ? coloreEvid : colore;
+  return (
+    <div className="lav">
+      <div className="lav-tools">
+        <button className={strumento==='penna'?'on':''} onClick={()=>setStrumento('penna')} title="Penna">✏️<span> Penna</span></button>
+        <button className={strumento==='evid'?'on':''} onClick={()=>setStrumento('evid')} title="Evidenziatore">🖍<span> Evid.</span></button>
+        <button className={strumento==='gomma'?'on':''} onClick={()=>setStrumento('gomma')} title="Gomma: cancella i tratti che tocchi">⌫<span> Gomma</span></button>
+        <span className="lav-sep"></span>
+        {strumento !== 'gomma' && coloriVisti.map(c=>(
+          <button key={c} className={'lav-col'+(coloreAttivo===c?' on':'')} style={{background:c}}
+            onClick={()=> strumento==='evid' ? setColoreEvid(c) : setColore(c)} title="Colore"></button>
+        ))}
+        {strumento !== 'gomma' && (
+          <label className="lav-col lav-altro" title="Altro colore">
+            <input type="color" value={coloreAttivo} onChange={e=> strumento==='evid' ? setColoreEvid(e.target.value) : setColore(e.target.value)}/>+
+          </label>
+        )}
+        <span className="lav-sep"></span>
+        <select value={spessore} onChange={e=>setSpessore(parseInt(e.target.value,10))} title={strumento==='gomma'?'Grandezza della gomma':'Spessore'}>
+          {LAV_SPESSORI.map(s=><option key={s.v} value={s.v}>{s.n}</option>)}
+        </select>
+        <span className="lav-sep"></span>
+        <button onClick={annulla} disabled={!pw.passi.length} title="Annulla (Ctrl/Cmd+Z)">↶</button>
+        <button onClick={ripeti} disabled={!pw.avanti.length} title="Ripeti">↷</button>
+        <span className="lav-sep"></span>
+        <select value={dis.sfondo} onChange={e=>cambia({...disRef.current, sfondo:e.target.value}, false)} title="Sfondo del foglio">
+          {LAV_SFONDI.map(s=><option key={s.v} value={s.v}>{s.n}</option>)}
+        </select>
+        <button className={ditoScorre?'on':''} onClick={()=>{ const v=!ditoScorre; setDitoScorre(v); local.set('quaderno:ditoScorre', v); }}
+          title={ditoScorre ? 'Il dito scorre il foglio, si disegna con la penna. Tocca per disegnare anche col dito'
+                            : 'Il dito disegna. Tocca per usare il dito solo per scorrere (utile con la penna su iPad)'}>
+          ✋<span> {ditoScorre ? 'Dito scorre' : 'Dito disegna'}</span></button>
+        <span className="lav-spacer"></span>
+        <button onClick={allunga} title="Aggiungi una pagina in fondo">+ Pagina</button>
+        <button onClick={accorcia} title="Togli lo spazio vuoto in fondo">Accorcia</button>
+        <button className="lav-del" onClick={svuota} title="Cancella tutto il disegno">Svuota</button>
+      </div>
+      <div className="lav-foglio" ref={wrapRef}>
+        <canvas ref={cRef}></canvas>
+        <canvas ref={oRef} className={'lav-sopra'+(strumento==='gomma'?' gomma':'')}
+          onPointerDown={giu} onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}
+          onContextMenu={e=>e.preventDefault()}></canvas>
+      </div>
+    </div>
+  );
+}
+
 function Login(){
   const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
   const entra = () => {
@@ -4670,6 +5145,13 @@ function App(){
     bodyTimer.current = setTimeout(salvaCorpo, 700);
   };
 
+  /* il disegno: salvato sul foglio da cui arriva, come il testo */
+  const onDisegno = (dis, id) => {
+    const d = documentiRef.current[id];
+    if(!d) return;
+    saveDoc(id, {...d, disegno: dis, aggiornato: nowISO()});
+  };
+
   /* cambiando documento, salvo subito quello che era in attesa (prima veniva buttato) */
   useEffect(()=>{ salvaCorpo(); },[selDoc]);
   useEffect(()=>{
@@ -4956,9 +5438,18 @@ function App(){
             </>
           )}
 
-          <div className="sec-h"><h3>{isMeet?'Note della riunione':'Appunti'}</h3><div className="rule"></div></div>
-          <RichText docKey={doc.id} value={doc.corpo} onChange={onBody}
-            placeholder={isMeet?'Cosa è stato detto, numeri, osservazioni…':'Scrivi qui…'}/>
+          {doc.tipo==='disegno' ? (
+            <>
+              <div className="sec-h"><h3>Disegno</h3><div className="rule"></div></div>
+              <Lavagna docKey={doc.id} value={doc.disegno} onChange={dis=>onDisegno(dis, doc.id)}/>
+            </>
+          ) : (
+            <>
+              <div className="sec-h"><h3>{isMeet?'Note della riunione':'Appunti'}</h3><div className="rule"></div></div>
+              <RichText docKey={doc.id} value={doc.corpo} onChange={onBody}
+                placeholder={isMeet?'Cosa è stato detto, numeri, osservazioni…':'Scrivi qui…'}/>
+            </>
+          )}
 
           {isMeet && (
             <>
@@ -5267,6 +5758,7 @@ function App(){
                       <div className="m">
                         {d.data && <span>{fmtDate(d.data)}</span>}
                         {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
+                        {d.tipo==='disegno' && <span className="tag draw">disegno</span>}
                         {aperteAz>0 && <span className="tag todo">{aperteAz} da fare</span>}
                       </div>
                       <span className="card-menu" title="Sposta"
@@ -5314,6 +5806,7 @@ function App(){
                 <div className="m">
                   {d.data && <span>{fmtDate(d.data)}</span>}
                   {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
+                        {d.tipo==='disegno' && <span className="tag draw">disegno</span>}
                   {aperte>0 && !d.cestinato && <span className="tag todo">{aperte} da fare</span>}
                   {d.cestinato && <span className="tag cest">restano {giorniCestino(d.cestinato)} giorni</span>}
                   {!d.cestinato && d.archiviato && <span className="tag arch">archiviato</span>}
