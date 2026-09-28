@@ -2766,6 +2766,145 @@ function RichText({value, onChange, placeholder, docKey}){
   const eGrassetto = (w) => w === 'bold' || w === 'bolder' || parseInt(w,10) >= 600;
   const vuoto = (c) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
 
+  /* ═══ pennello sul testo, come in Word ═══
+     Il formato copiato SOSTITUISCE quello del testo di arrivo: se copio un testo normale su
+     uno in grassetto evidenziato, il grassetto e l'evidenziatore vanno via.
+     Si lavora pezzo di testo per pezzo di testo, così una selezione su più righe, elenchi
+     o titoli non rompe i paragrafi (prima il testo veniva estratto e rimesso tutto in una riga). */
+  const RX_BLOCCO_TESTO = /^(P|DIV|LI|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|PRE|TD|TH|FIGCAPTION|UL|OL|TABLE|TR|TBODY|THEAD)$/;
+  const RX_FORMATO = /^(SPAN|B|STRONG|I|EM|U|FONT|MARK|S|STRIKE|INS)$/;
+  const bloccoDi = (n) => {
+    let x = n.nodeType === 3 ? n.parentNode : n;
+    while(x && x !== ref.current && !RX_BLOCCO_TESTO.test(x.tagName)) x = x.parentNode;
+    return x || ref.current;
+  };
+  /* legge il formato "visto" di un punto del testo, risalendo fino al suo paragrafo */
+  const formatoDelTesto = (el) => {
+    const st = window.getComputedStyle(el);
+    const blocco = bloccoDi(el);
+    let sotto = false, sfondo = null, corpo = '', famiglia = '';
+    for(let x = el; x && x !== blocco && x !== ref.current; x = x.parentElement){
+      const cs = window.getComputedStyle(x);
+      if(!sotto && ((cs.textDecorationLine||'').includes('underline') || x.tagName === 'U' || x.tagName === 'INS')) sotto = true;
+      if(!sfondo && !vuoto(cs.backgroundColor)) sfondo = cs.backgroundColor;
+      if(!corpo && x.style && x.style.fontSize) corpo = x.style.fontSize;
+      if(!famiglia && x.style && x.style.fontFamily) famiglia = x.style.fontFamily;
+    }
+    return {
+      bold: eGrassetto(st.fontWeight),
+      italic: st.fontStyle === 'italic',
+      underline: sotto,
+      color: vuoto(st.color) ? '' : st.color,
+      bg: sfondo,
+      fontSize: corpo,
+      fontFamily: famiglia
+    };
+  };
+  /* i pezzi di testo toccati dalla selezione, con gli estremi giusti */
+  const testiNelRange = (r) => {
+    const out = [];
+    const radice = r.commonAncestorContainer;
+    const prendi = (t) => {
+      if(!t.textContent.length) return;
+      let a = 0, b = t.textContent.length;
+      if(t === r.startContainer) a = r.startOffset;
+      if(t === r.endContainer) b = r.endOffset;
+      if(b > a && t.textContent.slice(a, b).replace(/[\s ]/g,'').length) out.push({nodo:t, a, b});
+    };
+    if(radice.nodeType === 3){ prendi(radice); return out; }
+    const w = document.createTreeWalker(radice, NodeFilter.SHOW_TEXT, {
+      acceptNode: t => { try{ return r.intersectsNode(t) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; }catch(e){ return NodeFilter.FILTER_REJECT; } }
+    });
+    let t; while((t = w.nextNode())) prendi(t);
+    return out;
+  };
+  /* porta il pezzo di testo fuori dagli elementi di formato che lo avvolgono (spezzandoli),
+     fino al paragrafo: così il formato vecchio non resta sotto a quello nuovo. I link restano. */
+  const isolaTesto = (t, blocco) => {
+    while(t.parentNode && t.parentNode !== blocco && RX_FORMATO.test(t.parentNode.tagName) && !t.parentNode.className){
+      const A = t.parentNode;
+      const dopo = A.cloneNode(false);
+      while(t.nextSibling) dopo.appendChild(t.nextSibling);
+      A.parentNode.insertBefore(t, A.nextSibling);
+      if(dopo.childNodes.length) A.parentNode.insertBefore(dopo, t.nextSibling);
+      if(!A.childNodes.length) A.remove();
+    }
+  };
+  const stileDelPennello = (f) => {
+    const o = {
+      fontWeight: f.bold ? 'bold' : 'normal',
+      fontStyle: f.italic ? 'italic' : 'normal',
+      textDecoration: f.underline ? 'underline' : 'none'
+    };
+    if(f.color) o.color = f.color;
+    if(f.bg) o.backgroundColor = f.bg;
+    if(f.fontSize) o.fontSize = f.fontSize;
+    if(f.fontFamily) o.fontFamily = f.fontFamily;
+    return o;
+  };
+  /* unisce gli span vicini con lo stesso aspetto, per non lasciare l'HTML a pezzetti */
+  const unisciSpanUguali = (padri) => {
+    padri.forEach(p=>{
+      if(!p || !p.isConnected) return;
+      let x = p.firstChild;
+      while(x){
+        const dopo = x.nextSibling;
+        if(dopo && x.nodeType === 1 && dopo.nodeType === 1 && x.tagName === 'SPAN' && dopo.tagName === 'SPAN'
+           && (x.getAttribute('style')||'') === (dopo.getAttribute('style')||'') && !x.className && !dopo.className){
+          while(dopo.firstChild) x.appendChild(dopo.firstChild);
+          dopo.remove();
+          continue;
+        }
+        x = dopo;
+      }
+      p.normalize();
+    });
+  };
+  const pennelloSulTesto = (f) => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || sel.isCollapsed) return false;
+    const r = sel.getRangeAt(0);
+    const pezzi = testiNelRange(r);
+    if(!pezzi.length) return false;
+    const stile = stileDelPennello(f);
+    const fatti = [];
+    // taglio i nodi di testo agli estremi della selezione (prima l'ultimo, così gli indici restano validi)
+    pezzi.forEach(pz=>{
+      let t = pz.nodo;
+      if(pz.b < t.textContent.length) t.splitText(pz.b);
+      if(pz.a > 0) t = t.splitText(pz.a);
+      fatti.push(t);
+    });
+    const padri = new Set();
+    const span0 = [];
+    fatti.forEach(t=>{
+      const blocco = bloccoDi(t);
+      isolaTesto(t, blocco);
+      const sp = document.createElement('span');
+      Object.entries(stile).forEach(([k,v])=>{ sp.style[k] = v; });
+      t.parentNode.insertBefore(sp, t);
+      sp.appendChild(t);
+      span0.push(sp);
+      padri.add(sp.parentNode);
+    });
+    // via gli elementi di formato rimasti vuoti
+    padri.forEach(p=>{
+      Array.from(p.querySelectorAll('span,b,strong,i,em,u,font,mark,s,strike,ins')).forEach(el=>{
+        if(!el.textContent.length && !el.querySelector('br,img')) el.remove();
+      });
+    });
+    const primo = span0[0], ultimo = span0[span0.length-1];
+    unisciSpanUguali(padri);
+    try{
+      const nr = document.createRange();
+      nr.setStartBefore(primo.isConnected ? primo : span0.find(x=>x.isConnected));
+      nr.setEndAfter(ultimo.isConnected ? ultimo : [...span0].reverse().find(x=>x.isConnected));
+      sel.removeAllRanges(); sel.addRange(nr);
+    }catch(err){}
+    emit(true);
+    return true;
+  };
+
   const copiaFormatoTesto = () => {
     salvaRange();
     let n = null;
@@ -2775,9 +2914,20 @@ function RichText({value, onChange, placeholder, docKey}){
     } else {
       const sel = window.getSelection();
       n = sel && sel.anchorNode;
+      // con del testo selezionato prendo il formato del primo carattere scelto, non del punto in cui è partito il trascinamento
+      if(sel && sel.rangeCount && !sel.isCollapsed){
+        const primo = testiNelRange(sel.getRangeAt(0))[0];
+        if(primo) n = primo.nodo;
+      }
       if(n && n.nodeType === 3) n = n.parentElement;
     }
     if(!n || !ref.current.contains(n)){ alert('Scegli prima la cella, o metti il cursore nel testo, di cui copiare il formato.'); return; }
+    if(!(n.tagName === 'TD' || n.tagName === 'TH')){
+      fmtTesto.current = { ...formatoDelTesto(n), cella:false, colSpan:1, rowSpan:1, blocco:null,
+        textAlign:'', verticalAlign:'', width:'', lineHeight:'' };
+      setFmtTPreso(true); setFmtSticky(false);
+      return;
+    }
     const st = window.getComputedStyle(n);
     const inl = n.style || {};
     // lo stile scritto sull'elemento è più affidabile di quello calcolato
@@ -2922,11 +3072,8 @@ function RichText({value, onChange, placeholder, docKey}){
       if(daSelezione) return;                       // niente selezione: resto in attesa
       alert('Seleziona il testo a cui applicare il formato.'); return;
     }
-    const messo = {};
-    Object.entries(stile).forEach(([k,v])=>{ if(v) messo[k] = v; });
-    if(!Object.keys(messo).length){ spegniPennello(); return; }
-    applicaStileTesto(messo);
-    dopoAverApplicato();      // una passata sola, salvo quando è agganciato
+    if(!ref.current.contains(sel.getRangeAt(0).commonAncestorContainer)) return;
+    if(pennelloSulTesto(f)) dopoAverApplicato();      // una passata sola, salvo quando è agganciato
   };
 
   /* cronologia delle modifiche: tenuta dall'app, così funziona anche dopo il salvataggio */
