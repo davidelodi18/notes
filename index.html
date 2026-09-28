@@ -355,6 +355,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .num-pop .num-ico{font-family:var(--sans);font-weight:600;color:#255840;padding:0 5px;border-right:1px solid #d5e3da;margin-right:2px}
 .num-pop button{border:1px solid transparent;background:none;border-radius:4px;padding:3px 8px;font-size:12px;color:#255840;line-height:1.2}
 .num-pop button:hover{background:var(--accent-soft)}
+.num-pop .num-sep{width:1px;align-self:stretch;background:#d5e3da;margin:0 3px}
+.num-pop .num-da{display:flex;align-items:center;gap:5px;color:#255840;font-size:12px;padding-left:3px}
+.num-pop .num-da input{width:52px;padding:2px 4px;border:1px solid #b9d3c3;border-radius:4px;font-size:12px;font-family:var(--sans);text-align:center}
 .num-pop button.attivo{background:var(--accent-soft);border-color:#b9d3c3;font-weight:600}
 .rt-ctx .sep{width:1px;align-self:stretch;background:#d5e3da;margin:0 2px}
 .ink-cell{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #b9c7bf;vertical-align:-2px}
@@ -1324,24 +1327,34 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   /* applica stili al testo selezionato avvolgendolo, senza dipendere dai comandi del browser */
+  /* stile su un pezzo di testo selezionato (colore, corpo, carattere…).
+     Pezzo di testo per pezzo di testo: una selezione su più paragrafi o voci d'elenco
+     resta com'era come struttura (prima veniva estratta e rimessa tutta in una riga). */
   const applicaStileTesto = (stile) => {
     const sel = window.getSelection();
     if(!sel || !sel.rangeCount || sel.isCollapsed) return false;
     const r = sel.getRangeAt(0);
     if(!ref.current.contains(r.commonAncestorContainer)) return false;
-    const span = document.createElement('span');
-    Object.entries(stile).forEach(([k,v])=>{ if(v) span.style[k] = v; });
+    const pezzi = testiNelRange(r);
+    if(!pezzi.length) return false;
+    const spans = [];
     try{
-      const frag = r.extractContents();
-      // tolgo dagli elementi interni le proprietà che sto per imporre, altrimenti vincono loro
-      frag.querySelectorAll && Array.from(frag.querySelectorAll('*')).forEach(el=>{
-        Object.keys(stile).forEach(k=>el.style && el.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase())));
+      pezzi.forEach(pz=>{
+        let t = pz.nodo;
+        if(pz.b < t.textContent.length) t.splitText(pz.b);
+        if(pz.a > 0) t = t.splitText(pz.a);
+        const sp = document.createElement('span');
+        Object.entries(stile).forEach(([k,v])=>{ if(v) sp.style[k] = v; });
+        t.parentNode.insertBefore(sp, t);
+        sp.appendChild(t);
+        spans.push(sp);
       });
-      span.appendChild(frag);
-      r.insertNode(span);
-      const nuovo = document.createRange();
-      nuovo.selectNodeContents(span);
-      sel.removeAllRanges(); sel.addRange(nuovo);
+      const padri = new Set(spans.map(x=>x.parentNode));
+      unisciSpanUguali(padri);
+      const vivi = spans.filter(x=>x.isConnected);
+      const nr = document.createRange();
+      nr.setStartBefore(vivi[0]); nr.setEndAfter(vivi[vivi.length-1]);
+      sel.removeAllRanges(); sel.addRange(nr);
     }catch(err){ return false; }
     emit(true);
     return true;
@@ -1675,13 +1688,74 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(true); setPal(null);
   };
 
+  /* ═══ interlinea ═══
+     Vale per ogni riga (paragrafo, voce d'elenco, titolo) in cui la selezione prende del testo,
+     e solo per quelle: prima, partendo da un testo fuori paragrafo, finiva sull'intero foglio
+     (e non veniva nemmeno salvata), e selezionando fino a un gruppo cambiava tutto il gruppo.
+     Toglie anche le interlinee rimaste dentro la riga (es. testo incollato da Word), che vincevano su quella scelta. */
+  const RX_RIGA = /^(P|LI|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|PRE|FIGCAPTION|DIV|TD|TH)$/;
+  const righeDellaSelezione = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return [];
+    let r = sel.getRangeAt(0);
+    if(!ref.current.contains(r.commonAncestorContainer)) return [];
+    // testo scritto fuori da un paragrafo: prima lo metto in un paragrafo suo
+    const sciolto = (n) => {
+      const x = n.nodeType === 3 ? n.parentNode : n;
+      const b = x && x.closest ? x.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,figcaption,td,th,.grp-t') : null;
+      return !b || !ref.current.contains(b);
+    };
+    if(sciolto(r.startContainer) || sciolto(r.endContainer)){
+      perRigheProprie();
+      r = sel.getRangeAt(0);
+    }
+    const soloCursore = sel.isCollapsed || !r.toString().replace(/[\s\u00a0]/g,'');   // nessun testo scelto: vale la riga del cursore
+    const tocca = (el) => {
+      try{ if(!r.intersectsNode(el)) return false; }catch(err){ return false; }
+      if(soloCursore) return true;
+      const i = document.createRange();
+      i.selectNodeContents(el);
+      if(i.compareBoundaryPoints(Range.START_TO_START, r) < 0) i.setStart(r.startContainer, r.startOffset);
+      if(i.compareBoundaryPoints(Range.END_TO_END, r) > 0) i.setEnd(r.endContainer, r.endOffset);
+      return !i.collapsed && (!!i.toString().replace(/[\s\u00a0]/g,'') || !!el.querySelector('img'));
+    };
+    const cand = Array.from(ref.current.querySelectorAll('*')).filter(el=>RX_RIGA.test(el.tagName) && tocca(el));
+    // solo le righe "vere": un contenitore (gruppo, cella con paragrafi dentro…) lascia il posto alle righe che contiene
+    let righe = cand.filter(el => el.tagName === 'LI' || !cand.some(x => x !== el && el.contains(x)));
+    if(soloCursore && righe.length > 1) righe = righe.slice(0, 1);
+    if(!righe.length && soloCursore){
+      const n = r.startContainer.nodeType === 3 ? r.startContainer.parentNode : r.startContainer;
+      const b = n.closest && n.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,figcaption,div,td,th');
+      if(b && b !== ref.current && ref.current.contains(b)) righe = [b];
+    }
+    return righe;
+  };
   const setInterlinea = (v) => {
     if(applicaStileCelle({lineHeight: v || ''})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
-    const bl = blocchiSelezionati();
-    if(!bl.length){ setPal(null); return; }
-    bl.forEach(el=>{ if(v) el.style.lineHeight = v; else el.style.removeProperty('line-height'); });
-    emit(); setPal(null); ref.current.focus();
+    const righe = righeDellaSelezione();
+    if(!righe.length){ setPal(null); alert('Metti il cursore nella riga, o seleziona le righe, di cui cambiare l\'interlinea.'); return; }
+    righe.forEach(el=>{
+      if(v) el.style.lineHeight = v; else el.style.removeProperty('line-height');
+      // le interlinee dentro la riga (su pezzi di testo) non devono più comandare
+      el.querySelectorAll('[style]').forEach(x=>{
+        if(x.closest('table') && !el.closest('table')) return;       // le tabelle dentro la riga restano come sono
+        if(RX_RIGA.test(x.tagName) && x.tagName !== 'DIV') return;   // righe annidate: le gestisce il loro turno
+        x.style.removeProperty('line-height');
+      });
+      if(!el.getAttribute('style')) el.removeAttribute('style');
+    });
+    salvaRange();
+    emit(true); setPal(null); ref.current.focus();
+  };
+  /* l'interlinea della riga dove sta il cursore, per segnarla nel menu */
+  const interlineaAttuale = () => {
+    const r = rangeRef.current;
+    let n = r && r.startContainer;
+    if(!n || !ref.current || !ref.current.contains(n)) return '';
+    if(n.nodeType === 3) n = n.parentNode;
+    const b = n.closest && n.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,figcaption,td,th');
+    return (b && ref.current.contains(b) && b.style.lineHeight) ? b.style.lineHeight : '';
   };
 
   /* corpo del carattere: vale sulle celle scelte, sul testo selezionato o sul paragrafo */
@@ -1775,17 +1849,19 @@ function RichText({value, onChange, placeholder, docKey}){
     const li = n.closest && n.closest('li');
     return (li && li.parentElement && li.parentElement.tagName === 'OL' && ref.current.contains(li)) ? li : null;
   };
-  const proponiNumerazione = (soloSePrima) => {
-    const li = liNumeratoCorrente();
+  const proponiNumerazione = (soloSePrima, liForzato) => {
+    const li = liForzato || liNumeratoCorrente();
     if(!li || !wrapRef.current){ setNumPop(null); return; }
     const ol = li.parentElement;
     if(ol.parentElement && ol.parentElement.closest('li')){ setNumPop(null); return; }   // sottoelenco: niente
     const voci = Array.from(ol.children).filter(x=>x.tagName === 'LI');
     const primo = voci[0] === li;
-    if(soloSePrima && !primo){ setNumPop(null); return; }
+    if(soloSePrima && !primo && !liForzato){ setNumPop(null); return; }
     const prec = primo ? olPrecedente(ol) : null;
     // scelta possibile solo se c'è un elenco prima da continuare, o se l'elenco non parte da 1
-    if(primo && !prec && inizioDi(ol) === 1){ setNumPop(null); return; }
+    // appena creato un elenco senza nulla prima da continuare, non disturbo:
+    // cliccando sulla prima voce (o col tasto destro su una voce) il riquadro compare comunque, per scegliere il numero
+    if(primo && !prec && inizioDi(ol) === 1 && !soloSePrima && !liForzato){ setNumPop(null); return; }
     const continuaDa = primo ? (prec ? inizioDi(prec) + vociDi(prec) : null) : inizioDi(ol) + voci.indexOf(li);
     const continuato = primo ? (prec ? inizioDi(ol) === continuaDa : false) : true;
     // accanto alla fine del testo della riga: non copre né la riga sopra né quella sotto
@@ -1797,11 +1873,40 @@ function RichText({value, onChange, placeholder, docKey}){
       const rett = Array.from(rr.getClientRects()).filter(x=>x.width || x.height);
       if(rett.length) destra = Math.max(...rett.filter(x=>x.top < rl.top + 30).map(x=>x.right));
     }catch(err){}
-    const larghezza = 250;
+    const larghezza = 380;
     let left = destra - w.left + 14;
     if(left + larghezza > w.width) left = Math.max(0, w.width - larghezza);
     numRef.current = {li, ol};
-    setNumPop({ top: rl.top - w.top - 3, left, continuaDa, continuato, primo });
+    const numero = inizioDi(ol) + voci.indexOf(li);
+    setNumPop({ top: rl.top - w.top - 3, left, continuaDa, continuato, primo, numero, scritto: String(numero) });
+  };
+  /* numero scelto a mano: la voce riparte da lì (se sta a metà elenco, da lì in giù diventa un elenco nuovo) */
+  const impostaNumero = (valore) => {
+    const n = parseInt(valore, 10);
+    if(isNaN(n) || n < 0 || n > 9999){ alert('Scrivi un numero intero, per esempio 4.'); return; }
+    const d = numRef.current;
+    setNumPop(null);
+    if(!d || !d.li.isConnected) return;
+    const {li} = d;
+    let ol = li.parentElement;
+    const voci = Array.from(ol.children).filter(x=>x.tagName === 'LI');
+    if(voci[0] !== li){
+      const nuovo = document.createElement('ol');
+      if(ol.getAttribute('style')) nuovo.setAttribute('style', ol.getAttribute('style'));
+      if(ol.className) nuovo.className = ol.className;
+      ol.parentNode.insertBefore(nuovo, ol.nextSibling);
+      let x = li;
+      while(x){ const dopo = x.nextSibling; nuovo.appendChild(x); x = dopo; }
+      ol = nuovo;
+    }
+    if(n === 1) ol.removeAttribute('start'); else ol.setAttribute('start', n);
+    try{
+      ref.current.focus();
+      const r = document.createRange(); r.selectNodeContents(li); r.collapse(false);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      salvaRange();
+    }catch(err){}
+    emit(true);
   };
   const sceltaNumerazione = (continua) => {
     const d = numRef.current;
@@ -2739,6 +2844,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   /* copia formato del testo: grassetto, corsivo, colore, evidenziatore */
   const fmtTesto = useRef(null);
+  const pennelloTimer = useRef(null);
   const [fmtTPreso,setFmtTPreso] = useState(false);
   const fmtTPresoRef = useRef(false);
   useEffect(()=>{ fmtTPresoRef.current = fmtTPreso; },[fmtTPreso]);
@@ -2790,14 +2896,24 @@ function RichText({value, onChange, placeholder, docKey}){
       if(!corpo && x.style && x.style.fontSize) corpo = x.style.fontSize;
       if(!famiglia && x.style && x.style.fontFamily) famiglia = x.style.fontFamily;
     }
+    /* corpo e carattere sono quelli che si VEDONO (anche se vengono dal titolo), altrimenti
+       copiando da un titolo su un testo normale non cambiava niente */
+    const bl = blocco && blocco !== ref.current ? blocco : null;
     return {
       bold: eGrassetto(st.fontWeight),
       italic: st.fontStyle === 'italic',
       underline: sotto,
       color: vuoto(st.color) ? '' : st.color,
       bg: sfondo,
-      fontSize: corpo,
-      fontFamily: famiglia
+      fontSize: corpo || st.fontSize || '',
+      fontFamily: famiglia || st.fontFamily || '',
+      corpoScelto: !!corpo, famigliaScelta: !!famiglia,
+      // il formato del paragrafo: vale quando si "pennella" un paragrafo intero, come in Word
+      bloccoTag: bl && /^(P|H1|H2|H3|H4|DIV)$/.test(bl.tagName) && !bl.classList.contains('grp-t') && !bl.classList.contains('grp-c') && !bl.classList.contains('grp') ? (bl.tagName === 'DIV' ? 'P' : bl.tagName) : '',
+      bloccoStile: bl ? {
+        lineHeight: bl.style.lineHeight || '', textAlign: bl.style.textAlign || '',
+        backgroundColor: bl.style.backgroundColor || ''
+      } : null
     };
   };
   /* i pezzi di testo toccati dalla selezione, con gli estremi giusti */
@@ -2839,7 +2955,7 @@ function RichText({value, onChange, placeholder, docKey}){
     if(f.color) o.color = f.color;
     if(f.bg) o.backgroundColor = f.bg;
     if(f.fontSize) o.fontSize = f.fontSize;
-    if(f.fontFamily) o.fontFamily = f.fontFamily;
+    if(f.fontFamily && f.famigliaScelta !== false) o.fontFamily = f.fontFamily;   // carattere del foglio: non lo ripeto
     return o;
   };
   /* unisce gli span vicini con lo stesso aspetto, per non lasciare l'HTML a pezzetti */
@@ -2867,6 +2983,25 @@ function RichText({value, onChange, placeholder, docKey}){
     const pezzi = testiNelRange(r);
     if(!pezzi.length) return false;
     const stile = stileDelPennello(f);
+    /* paragrafi presi per intero: prendono anche il formato del paragrafo di partenza
+       (titolo / sottotitolo / testo, interlinea, allineamento) */
+    const interi = [];
+    if(f.bloccoTag){
+      const visti = new Set();
+      pezzi.forEach(pz=>{
+        const b = bloccoDi(pz.nodo);
+        if(!b || b === ref.current || visti.has(b)) return;
+        visti.add(b);
+        if(!/^(P|H1|H2|H3|H4|DIV)$/.test(b.tagName) || b.classList.contains('grp-t') || b.classList.contains('grp-c') || b.classList.contains('grp')) return;
+        if(b.closest('td,th,li')) return;
+        const tutto = document.createRange(); tutto.selectNodeContents(b);
+        const dentro = document.createRange(); dentro.selectNodeContents(b);
+        if(dentro.compareBoundaryPoints(Range.START_TO_START, r) < 0) dentro.setStart(r.startContainer, r.startOffset);
+        if(dentro.compareBoundaryPoints(Range.END_TO_END, r) > 0) dentro.setEnd(r.endContainer, r.endOffset);
+        const pulito = x => x.toString().replace(/[\s\u00a0]/g,'');
+        if(pulito(dentro) && pulito(dentro) === pulito(tutto)) interi.push(b);
+      });
+    }
     const fatti = [];
     // taglio i nodi di testo agli estremi della selezione (prima l'ultimo, così gli indici restano validi)
     pezzi.forEach(pz=>{
@@ -2893,6 +3028,31 @@ function RichText({value, onChange, placeholder, docKey}){
         if(!el.textContent.length && !el.querySelector('br,img')) el.remove();
       });
     });
+    // cambio il tipo di paragrafo (es. da titolo a testo) tenendo il contenuto
+    interi.forEach(b=>{
+      if(!b.isConnected) return;
+      let nb = b;
+      if(b.tagName !== f.bloccoTag){
+        nb = document.createElement(f.bloccoTag.toLowerCase());
+        Array.from(b.attributes).forEach(a=>{ if(a.name !== 'style') nb.setAttribute(a.name, a.value); });
+        while(b.firstChild) nb.appendChild(b.firstChild);
+        b.replaceWith(nb);
+        padri.delete(b); padri.add(nb);
+      }
+      const bs = f.bloccoStile || {};
+      ['lineHeight','textAlign','backgroundColor'].forEach(k=>{
+        if(bs[k]) nb.style[k] = bs[k]; else nb.style.removeProperty(k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase()));
+      });
+      if(!nb.getAttribute('style')) nb.removeAttribute('style');
+      // nel paragrafo intero corpo e carattere vengono dal paragrafo stesso: niente stile ripetuto sui pezzi
+      if(nb.tagName === f.bloccoTag){
+        nb.querySelectorAll('span').forEach(sp=>{
+          if(!span0.includes(sp)) return;
+          if(!f.corpoScelto) sp.style.removeProperty('font-size');
+          if(!f.famigliaScelta) sp.style.removeProperty('font-family');
+        });
+      }
+    });
     const primo = span0[0], ultimo = span0[span0.length-1];
     unisciSpanUguali(padri);
     try{
@@ -2904,6 +3064,70 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(true);
     return true;
   };
+
+  /* ═══ corpo e carattere "visti" ═══
+     Come in Word: le due tendine mostrano il corpo e il carattere del testo selezionato
+     (o del punto dove sta il cursore). Se la selezione ne mescola più d'uno, restano vuote. */
+  const [fmtVisto, setFmtVisto] = useState({corpo:'', fam:'', famNome:''});
+  const primoNome = (ff) => (ff||'').split(',')[0].replace(/["']/g,'').trim().toLowerCase();
+  const leggiFmtDi = (el) => {
+    const cs = window.getComputedStyle(el);
+    const px = parseFloat(cs.fontSize);
+    const corpo = isNaN(px) ? '' : String(Math.round(px * 2) / 2);
+    // carattere scelto a mano (stile scritto su un elemento) o quello del foglio?
+    let scelto = '';
+    for(let x = el; x && x !== ref.current; x = x.parentElement){
+      if(x.style && x.style.fontFamily){ scelto = x.style.fontFamily; break; }
+    }
+    const nome = primoNome(cs.fontFamily);
+    let fam = 'DEF', famNome = '';
+    if(scelto){
+      const f = FAMIGLIE.find(f=>f.v && primoNome(f.v) === primoNome(scelto));
+      if(f) fam = f.v;
+      else { fam = 'X:' + scelto; famNome = scelto.split(',')[0].replace(/["']/g,'').trim(); }
+    } else if(!nome){ fam = ''; }
+    return {corpo, fam, famNome};
+  };
+  const aggiornaFmtVisto = () => {
+    if(!ref.current) return;
+    let el = null, elementi = [];
+    const cella = (modo === 'sel') ? cellaCorrente() : null;
+    if(cella){ el = cella; }
+    else {
+      const sel = window.getSelection();
+      if(!sel || !sel.rangeCount) return;
+      const r = sel.getRangeAt(0);
+      if(!ref.current.contains(r.commonAncestorContainer)) return;   // fuori dall'editor: lascio com'era
+      if(!sel.isCollapsed){
+        elementi = testiNelRange(r).slice(0, 400).map(p=>p.nodo.parentElement).filter(Boolean);
+      }
+      if(!elementi.length){
+        let n = sel.anchorNode;
+        if(n && n.nodeType === 3) n = n.parentElement;
+        el = n;
+      }
+    }
+    if(el) elementi = [el];
+    if(!elementi.length){ setFmtVisto({corpo:'', fam:'', famNome:''}); return; }
+    const visti = elementi.map(leggiFmtDi);
+    const corpo = visti.every(v=>v.corpo === visti[0].corpo) ? visti[0].corpo : '';
+    const stessaFam = visti.every(v=>v.fam === visti[0].fam);
+    setFmtVisto(p=>{
+      const n = {corpo, fam: stessaFam ? visti[0].fam : '', famNome: stessaFam ? visti[0].famNome : ''};
+      return (p.corpo === n.corpo && p.fam === n.fam && p.famNome === n.famNome) ? p : n;
+    });
+  };
+  const aggFmtRef = useRef(aggiornaFmtVisto);
+  aggFmtRef.current = aggiornaFmtVisto;
+  useEffect(()=>{
+    let att = false;
+    const h = () => {
+      if(att) return; att = true;
+      requestAnimationFrame(()=>{ att = false; aggFmtRef.current(); });
+    };
+    document.addEventListener('selectionchange', h);
+    return () => document.removeEventListener('selectionchange', h);
+  },[]);
 
   const copiaFormatoTesto = () => {
     salvaRange();
@@ -3278,16 +3502,19 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<h2>')} title="Titolo">T1</button>
         <button onClick={()=>cmd('formatBlock','<h3>')} title="Sottotitolo">T2</button>
         <button onClick={()=>cmd('formatBlock','<p>')} title="Testo normale">¶</button>
-        <select className="mini" title="Corpo del carattere" value=""
+        <select className="mini" title="Corpo del carattere (mostra quello del testo selezionato)" value={fmtVisto.corpo}
           onMouseDown={()=>salvaRange()}
-          onChange={e=>{ const v = e.target.value; e.target.value=''; if(v) setCorpo(parseInt(v,10)); }}>
+          onChange={e=>{ const v = e.target.value; if(v){ setCorpo(parseFloat(v)); setTimeout(aggiornaFmtVisto, 0); } }}>
           <option value="">Corpo</option>
-          {CORPI.map(c=><option key={c} value={c}>{c}</option>)}
+          {fmtVisto.corpo && !CORPI.includes(parseFloat(fmtVisto.corpo)) &&
+            <option value={fmtVisto.corpo}>{fmtVisto.corpo.replace('.',',')}</option>}
+          {CORPI.map(c=><option key={c} value={String(c)}>{c}</option>)}
         </select>
-        <select className="mini" title="Tipo di carattere" value=""
+        <select className="mini" title="Tipo di carattere (mostra quello del testo selezionato)" value={fmtVisto.fam}
           onMouseDown={()=>salvaRange()}
-          onChange={e=>{ const v = e.target.value; e.target.value=''; if(v) setFamiglia(v==='DEF' ? '' : v); }}>
+          onChange={e=>{ const v = e.target.value; if(v && !v.startsWith('X:')){ setFamiglia(v==='DEF' ? '' : v); setTimeout(aggiornaFmtVisto, 0); } }}>
           <option value="">Carattere</option>
+          {fmtVisto.fam.startsWith('X:') && <option value={fmtVisto.fam}>{fmtVisto.famNome}</option>}
           {FAMIGLIE.map(f=><option key={f.n} value={f.v || 'DEF'}>{f.n}</option>)}
         </select>
         <span className="pal-wrap" onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
@@ -3398,10 +3625,14 @@ function RichText({value, onChange, placeholder, docKey}){
           <button onClick={()=>setPal(pal==='riga'?null:'riga')} onMouseDown={e=>{e.preventDefault(); salvaRange();}} title="Spaziatura tra le righe">↕</button>
           {pal==='riga' && (
             <div className="pal" onMouseDown={e=>e.preventDefault()}>
-              {INTERLINEE.map(x=>(
-                <button key={x.v} className="pal-riga" onClick={()=>setInterlinea(x.v)}>{x.n}</button>
-              ))}
-              <button className="pal-clear" onClick={()=>setInterlinea(null)}>Predefinita</button>
+              {(()=>{ const att = interlineaAttuale(); return (<>
+                {INTERLINEE.map(x=>(
+                  <button key={x.v} className={'pal-riga'+(att===x.v?' scelta':'')} onClick={()=>setInterlinea(x.v)}>
+                    {att===x.v ? '✓ ' : ''}{x.n} <span style={{color:'var(--muted)'}}>· {x.v.replace('.',',')}</span>
+                  </button>
+                ))}
+                <button className="pal-clear" onClick={()=>setInterlinea(null)}>{!att ? '✓ ' : ''}Predefinita · 1,65</button>
+              </>); })()}
             </div>
           )}
         </span>
@@ -3428,14 +3659,22 @@ function RichText({value, onChange, placeholder, docKey}){
       <div className="rt-wrap" ref={wrapRef}>
       {numPop && (
         <div className="num-pop" style={{top:numPop.top, left:numPop.left}}
-          onMouseDown={e=>e.preventDefault()} onClick={e=>e.stopPropagation()}>
+          onMouseDown={e=>{ if(e.target.tagName !== 'INPUT') e.preventDefault(); }} onClick={e=>e.stopPropagation()}>
           <span className="num-ico" title="Numerazione">1.</span>
           {numPop.continuaDa !== null && (
             <button className={numPop.continuato?'attivo':''} onClick={()=>sceltaNumerazione(true)}
               title="Prosegui la numerazione dell'elenco precedente">Continua da {numPop.continuaDa}</button>
           )}
-          <button className={!numPop.continuato?'attivo':''} onClick={()=>sceltaNumerazione(false)}
+          <button className={!numPop.continuato && numPop.numero === 1?'attivo':''} onClick={()=>sceltaNumerazione(false)}
             title="Fai ripartire l'elenco da 1">Ricomincia da 1</button>
+          <span className="num-sep"></span>
+          <label className="num-da" title="Scegli tu il numero di questa voce">Parti da
+            <input type="number" min="0" max="9999" value={numPop.scritto}
+              onMouseDown={e=>e.stopPropagation()}
+              onChange={e=>{ const v = e.target.value; setNumPop(p=>p ? {...p, scritto:v} : p); }}
+              onKeyDown={e=>{ if(e.key === 'Enter'){ e.preventDefault(); impostaNumero(numPop.scritto); } }}/>
+          </label>
+          <button onClick={()=>impostaNumero(numPop.scritto)} title="Applica il numero scelto">OK</button>
         </div>
       )}
       {inTable && tblBox && (
@@ -3537,6 +3776,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
       <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning
         onMouseDown={e=>{
+          clearTimeout(pennelloTimer.current);
           const td = e.target.closest && e.target.closest('td,th');
           if(!td || !ref.current.contains(td)){ 
             if(inModifica.current) chiudiModifica();
@@ -3574,6 +3814,13 @@ function RichText({value, onChange, placeholder, docKey}){
           }
         }}
         onContextMenu={e=>{
+          // tasto destro su una voce numerata: riquadro della numerazione per quella voce (come "Imposta valore" di Word)
+          const liN = e.target.closest && e.target.closest('li');
+          if(liN && ref.current.contains(liN) && liN.parentElement && liN.parentElement.tagName === 'OL' && !e.ctrlKey){
+            e.preventDefault();
+            proponiNumerazione(true, liN);
+            return;
+          }
           const td = e.target.closest && e.target.closest('td,th');
           if(td && ref.current.contains(td) && (e.ctrlKey || modo === 'sel')) e.preventDefault();
         }}
@@ -3634,11 +3881,16 @@ function RichText({value, onChange, placeholder, docKey}){
           scorciatoiaElenco(e);
         }}
         onKeyUp={()=>{ checkCtx(); salvaRange(); }}
-        onMouseUp={()=>{
+        onMouseUp={e=>{
           trascina.current = false;
           checkCtx(); salvaRange();
-          { const sl = window.getSelection(); if(sl && sl.isCollapsed) setTimeout(()=>proponiNumerazione(true), 0); }
-          if(fmtTPreso) setTimeout(()=>incollaFormatoTesto(true), 10);
+          { const sl = window.getSelection(); if(e.button === 0 && !e.ctrlKey && sl && sl.isCollapsed) setTimeout(()=>proponiNumerazione(true), 0); }
+          /* col pennello aspetto un attimo: se arriva un secondo o terzo clic (parola o riga intera)
+             il formato va sulla selezione finale, non sulla prima parola */
+          if(fmtTPreso){
+            clearTimeout(pennelloTimer.current);
+            pennelloTimer.current = setTimeout(()=>incollaFormatoTesto(true), 320);
+          }
         }}
         onTouchEnd={()=>{
           trascina.current = false;
