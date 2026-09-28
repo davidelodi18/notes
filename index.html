@@ -204,6 +204,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .lav-foglio canvas{display:block}
 .lav-sopra{position:absolute;left:0;top:0;touch-action:none;cursor:crosshair;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .lav-sopra.gomma{cursor:cell}
+.lav-sopra.testo{cursor:text}
+.lav-scritta{position:absolute;z-index:3;border:1px dashed #9bb8a8;background:rgba(255,255,255,.85);padding:0;margin:0;
+  outline:none;resize:none;overflow:hidden;white-space:pre;border-radius:3px;min-height:1.3em}
 @media (max-width:720px){ .lav-tools{top:44px} .lav-tools button span{display:none} .lav-tools button{padding:7px 9px;font-size:15px} }
 .tag.draw{background:#f3eefb;border-color:#e0d4f2;color:#6b4a9a}
 
@@ -365,6 +368,14 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt-ctx button.scrivi:hover{background:#255840}
 .rt figure{margin:16px 0;text-align:center}
 .rt img{max-width:100%;height:auto;border-radius:4px;display:block;margin:0 auto}
+.rt figure.schizzo{margin:10px 0;text-align:left;cursor:pointer;position:relative}
+.rt figure.schizzo img{display:inline-block;max-width:100%;border-radius:4px}
+.rt figure.schizzo:hover img{outline:1px dashed #9bb8a8;outline-offset:3px}
+.modal.modal-schizzo{max-width:min(1000px,96vw);max-height:94vh;overflow:auto;padding:14px 16px}
+.schizzo-testa{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.schizzo-testa h3{margin:0}
+.schizzo-nota{font-size:12px;color:var(--muted);margin:8px 0 0}
+.modal-schizzo .lav-tools{top:-14px}
 .rt figcaption{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:5px}
 .rt-wrap{position:relative}
 .rt-ctx{position:absolute;z-index:7;display:flex;gap:3px;align-items:center;padding:4px;background:var(--paper);
@@ -706,6 +717,7 @@ function docToHtml(doc, sezione){
     }
     const png = disegnoPng(doc.disegno);
     if(png) h += `<p><img src="${png}" style="width:100%;max-width:100%;border:1px solid #e3e8ea"></p>`;
+    if(doc.corpo && stripHtml(doc.corpo)) h += '<div>'+apriGruppi(doc.corpo)+'</div>';
   } else {
     if(doc.data || doc.obiettivo){
       const meta=[];
@@ -3504,10 +3516,10 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   /* tiene il formato di quello che incollo, buttando via il contorno di Word e delle pagine web */
-  const ATTR_TENUTI = ['href','src','alt','colspan','rowspan','style','class'];
+  const ATTR_TENUTI = ['href','src','alt','colspan','rowspan','style','class','data-schizzo'];
   const STILI_TENUTI = ['color','background-color','font-weight','font-style','text-decoration','text-align',
     'font-size','font-family','vertical-align','line-height','width'];
-  const CLASSI_MIE = ['grp','grp-t','grp-c','chiuso','cklist','ck','fatto'];
+  const CLASSI_MIE = ['grp','grp-t','grp-c','chiuso','cklist','ck','fatto','schizzo'];
   const ripulisciIncollato = (html) => {
     const box = document.createElement('div');
     box.innerHTML = String(html||'');
@@ -3538,6 +3550,58 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const pickImage = () => fileRef.current.click();
+
+  /* ═══ disegni dentro il testo ═══
+     Il disegno finisce nel testo come immagine; i tratti restano salvati sull'immagine stessa,
+     così con un doppio clic (o selezionandolo e premendo ✏️) si riapre e si modifica. */
+  const [schizzo, setSchizzo] = useState(null);      // {dati, fig, chiave}
+  const schizzoDati = useRef(null);
+  const lavApi = useRef(null);
+  const schizzoSelezionato = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    let n = r.startContainer;
+    if(n.nodeType === 1 && n.childNodes[r.startOffset] && n.childNodes[r.startOffset].nodeType === 1){
+      const c = n.childNodes[r.startOffset];
+      if(c.matches && c.matches('figure.schizzo')) return c;
+    }
+    if(n.nodeType === 3) n = n.parentNode;
+    const f = n && n.closest && n.closest('figure.schizzo');
+    return (f && ref.current.contains(f)) ? f : null;
+  };
+  const apriSchizzo = (fig) => {
+    salvaRange();
+    let dati = {tratti:[], h:700, sfondo:'bianco'};
+    const f = fig || schizzoSelezionato();
+    if(f){
+      try{ dati = JSON.parse(decodeURIComponent(f.getAttribute('data-schizzo') || '')); }catch(err){}
+    }
+    schizzoDati.current = dati;
+    setSchizzo({dati, fig: f || null, chiave: 'schizzo-' + Date.now()});
+  };
+  const confermaSchizzo = () => {
+    const st = schizzo;
+    const d = (lavApi.current && lavApi.current.dati) ? lavApi.current.dati() : schizzoDati.current;
+    setSchizzo(null);
+    if(!st || !d) return;
+    const img = disegnoRitaglio(d);
+    if(!img){                                     // disegno vuoto: se era già nel testo, lo tolgo
+      if(st.fig && st.fig.isConnected){ st.fig.remove(); emit(true); }
+      return;
+    }
+    const dati = encodeURIComponent(JSON.stringify({tratti:d.tratti, h:d.h, sfondo:d.sfondo}));
+    const html = `<figure class="schizzo" data-schizzo="${dati}"><img src="${img.src}" alt="disegno" style="width:${img.perc}%"></figure>`;
+    if(st.fig && st.fig.isConnected){
+      const t = document.createElement('div'); t.innerHTML = html;
+      st.fig.replaceWith(t.firstChild);
+      emit(true);
+      return;
+    }
+    ref.current.focus(); ripristinaRange();
+    document.execCommand('insertHTML', false, html + '<p><br></p>');
+    emit(true);
+  };
   const onFile = async (e) => {
     const files = Array.from(e.target.files||[]);
     e.target.value='';
@@ -3573,6 +3637,20 @@ function RichText({value, onChange, placeholder, docKey}){
 
   return (
     <div>
+      {schizzo && (
+        <div className="overlay" onMouseDown={e=>{ if(e.target===e.currentTarget && confirm('Chiudere senza inserire il disegno?')) setSchizzo(null); }}>
+          <div className="modal modal-schizzo">
+            <div className="schizzo-testa">
+              <h3>{schizzo.fig ? 'Modifica il disegno' : 'Disegna nel testo'}</h3>
+              <span className="lav-spacer"></span>
+              <button className="btn" onClick={()=>setSchizzo(null)}>Annulla</button>
+              <button className="btn primary" onClick={confermaSchizzo}>{schizzo.fig ? 'Aggiorna' : 'Inserisci nel testo'}</button>
+            </div>
+            <Lavagna compatta apiRef={lavApi} docKey={schizzo.chiave} value={schizzo.dati} onChange={d=>{ schizzoDati.current = d; }}/>
+            <p className="schizzo-nota">Nel testo va solo la parte disegnata, ritagliata. Doppio clic sul disegno per riaprirlo.</p>
+          </div>
+        </div>
+      )}
       <div className="rt-tools" onMouseDown={e=>{ if(e.target.closest('button')) e.preventDefault(); }}>
         {inTable && modo==='sel' && selRef.current.filter(td=>td.isConnected).length > 0 && (
           <span className="conta-celle">{selRef.current.filter(td=>td.isConnected).length} celle</span>
@@ -3740,6 +3818,7 @@ function RichText({value, onChange, placeholder, docKey}){
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={insertTable} title="Inserisci tabella">▦</button>
         <button onClick={pickImage} title="Inserisci foto">🖼</button>
+        <button onClick={()=>apriSchizzo()} title="Disegna nel testo (doppio clic su un disegno per modificarlo)">✏️</button>
         <button onClick={addLink} title="Collegamento (anche a un video)">🔗</button>
         <span style={{width:1,background:'var(--line)',margin:'2px 5px'}}></span>
         <button onClick={()=>cmd('removeFormat')} title="Togli formattazione">✕</button>
@@ -3944,6 +4023,8 @@ function RichText({value, onChange, placeholder, docKey}){
         }}
         onDoubleClick={e=>{
           const td = e.target.closest && e.target.closest('td,th');
+          const sk = e.target.closest && e.target.closest('figure.schizzo');
+          if(sk && ref.current.contains(sk)){ e.preventDefault(); apriSchizzo(sk); return; }
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
         }}
         data-ph={placeholder||'Scrivi qui…'}
@@ -4444,7 +4525,31 @@ function lavSfondo(ctx, sfondo, h){
   ctx.stroke();
   ctx.restore();
 }
+const LAV_FONT = "'Inter',-apple-system,'Segoe UI',Arial,sans-serif";
+const LAV_CORPI = {2:18, 4:24, 8:32, 14:44};           // spessore scelto → corpo del testo
+let lavCtxMisura = null;
+/* ingombro di una scritta: {x, y, w, h} (y = cima della prima riga) */
+function lavMisura(tr){
+  if(!lavCtxMisura){ const c = document.createElement('canvas'); lavCtxMisura = c.getContext('2d'); }
+  const righe = String(tr.testo || '').split('\n');
+  lavCtxMisura.font = `${tr.s}px ${LAV_FONT}`;
+  const w = Math.max(10, ...righe.map(r=>lavCtxMisura.measureText(r).width));
+  return {x: tr.x, y: tr.y, w, h: righe.length * tr.s * 1.25};
+}
+/* quanto in basso arriva un elemento (per allungare il foglio e ritagliare le immagini) */
+function lavFondo(tr){
+  if(tr.t === 'testo'){ const m = lavMisura(tr); return m.y + m.h; }
+  const p = tr.p || []; let y = 0; for(let i = 1; i < p.length; i += 2) if(p[i] > y) y = p[i];
+  return y + (tr.w || 0) / 2;
+}
 function lavTratto(ctx, tr){
+  if(tr.t === 'testo'){
+    ctx.save();
+    ctx.fillStyle = tr.c; ctx.font = `${tr.s}px ${LAV_FONT}`; ctx.textBaseline = 'top';
+    String(tr.testo || '').split('\n').forEach((r, i)=>ctx.fillText(r, tr.x, tr.y + i * tr.s * 1.25));
+    ctx.restore();
+    return;
+  }
   const p = tr.p || [];
   if(p.length < 2) return;
   ctx.save();
@@ -4472,7 +4577,7 @@ function disegnoPng(dis){
     const tratti = d.tratti || [];
     // alto quanto serve: fino all'ultimo tratto (almeno mezza pagina)
     let maxY = 400;
-    tratti.forEach(t=>{ const p = t.p || []; for(let i = 1; i < p.length; i += 2) if(p[i] > maxY) maxY = p[i]; });
+    tratti.forEach(t=>{ const f = lavFondo(t); if(f > maxY) maxY = f; });
     const h = Math.min(d.h || LAV_PAGINA, Math.ceil(maxY + 60));
     const c = document.createElement('canvas');
     const k = 1.4;
@@ -4485,8 +4590,33 @@ function disegnoPng(dis){
   }catch(e){ return ''; }
 }
 
-function Lavagna({value, onChange, docKey}){
-  const leggi = (v) => ({ tratti: (v && Array.isArray(v.tratti)) ? v.tratti.filter(t=>t && t.p) : [],
+/* immagine ritagliata sul contenuto, con lo sfondo trasparente: per i disegni dentro il testo */
+function disegnoRitaglio(dis){
+  const tratti = (dis && dis.tratti) || [];
+  if(!tratti.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  tratti.forEach(t=>{
+    if(t.t === 'testo'){ const m = lavMisura(t); x0 = Math.min(x0, m.x); y0 = Math.min(y0, m.y); x1 = Math.max(x1, m.x + m.w); y1 = Math.max(y1, m.y + m.h); return; }
+    const p = t.p || [], m = (t.w || 2) / 2;
+    for(let i = 0; i < p.length; i += 2){ x0 = Math.min(x0, p[i]-m); x1 = Math.max(x1, p[i]+m); y0 = Math.min(y0, p[i+1]-m); y1 = Math.max(y1, p[i+1]+m); }
+  });
+  const pad = 14;
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(LAV_W, x1 + pad); y1 = y1 + pad;
+  const w = Math.max(20, x1 - x0), h = Math.max(20, y1 - y0);
+  const k = 2;
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const ctx = c.getContext('2d');
+  ctx.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
+  if(dis.sfondo && dis.sfondo !== 'bianco'){ ctx.save(); lavSfondo(ctx, dis.sfondo, y1 + 10); ctx.restore(); }
+  tratti.forEach(t=>lavTratto(ctx, t));
+  return { src: c.toDataURL('image/png'), perc: Math.min(100, Math.round(w / LAV_W * 1000) / 10) };
+}
+
+let lavAttiva = null;                    // l'ultima lavagna toccata: Ctrl+Z vale per lei
+
+function Lavagna({value, onChange, docKey, compatta, apiRef}){
+  const leggi = (v) => ({ tratti: (v && Array.isArray(v.tratti)) ? v.tratti.filter(t=>t && (t.p || t.t === 'testo')) : [],
                           h: (v && v.h) || LAV_PAGINA, sfondo: (v && v.sfondo) || 'bianco' });
   const [dis, setDis] = useState(()=>leggi(value));
   const disRef = useRef(dis); disRef.current = dis;
@@ -4495,6 +4625,10 @@ function Lavagna({value, onChange, docKey}){
   const [coloreEvid, setColoreEvid] = useState(LAV_EVID[0]);
   const [spessore, setSpessore] = useState(4);
   const [ditoScorre, setDitoScorre] = useState(()=> !!local.get('quaderno:ditoScorre'));
+  const [scrivo, setScrivo] = useState(null);         // scritta in corso: {x, y, s, c, testo, idx}
+  const scrivoRef = useRef(null); scrivoRef.current = scrivo;
+  const areaRef = useRef(null);
+  const mioId = useRef(Math.random().toString(36).slice(2));
   const ditoRef = useRef(ditoScorre); ditoRef.current = ditoScorre;
   const wrapRef = useRef(null), cRef = useRef(null), oRef = useRef(null);
   const scalaRef = useRef(1);
@@ -4563,7 +4697,8 @@ function Lavagna({value, onChange, docKey}){
     const ctx = c.getContext('2d');
     ctx.setTransform(dpr * scala, 0, 0, dpr * scala, 0, 0);
     lavSfondo(ctx, d.sfondo, d.h);
-    d.tratti.forEach(t=>lavTratto(ctx, t));
+    const inModifica = scrivoRef.current ? scrivoRef.current.idx : null;
+    d.tratti.forEach((t, i)=>{ if(i !== inModifica) lavTratto(ctx, t); });
   };
   useEffect(()=>{ ridisegna(); });
   useEffect(()=>{
@@ -4602,6 +4737,10 @@ function Lavagna({value, onChange, docKey}){
     const raggio = 10 + spessore;
     const r2 = raggio * raggio;
     const tocca = (t) => {
+      if(t.t === 'testo'){
+        const b = lavMisura(t);
+        return x >= b.x - raggio && x <= b.x + b.w + raggio && y >= b.y - raggio && y <= b.y + b.h + raggio;
+      }
       const p = t.p || [], m = (t.w || 2) / 2;
       for(let i = 0; i < p.length; i += 2){
         const dx = p[i] - x, dy = p[i+1] - y;
@@ -4630,7 +4769,42 @@ function Lavagna({value, onChange, docKey}){
     }
   };
 
+  /* ═══ scritte sul foglio ═══ */
+  const chiudiScritta = () => {
+    const sc = scrivoRef.current;
+    if(!sc) return;
+    scrivoRef.current = null; setScrivo(null);
+    const testo = (sc.testo || '').replace(/\s+$/,'');
+    const d = disRef.current;
+    const tratti = d.tratti.slice();
+    if(sc.idx !== null && sc.idx !== undefined){
+      if(testo.trim()) tratti[sc.idx] = {t:'testo', x:sc.x, y:sc.y, s:sc.s, c:sc.c, testo};
+      else tratti.splice(sc.idx, 1);
+    } else if(testo.trim()) tratti.push({t:'testo', x:sc.x, y:sc.y, s:sc.s, c:sc.c, testo});
+    else { ridisegna(); return; }
+    let h = d.h;
+    const fondo = Math.max(0, ...tratti.map(lavFondo));
+    if(fondo > h - 200) h = h + Math.round(LAV_PAGINA / 2);
+    cambia({...d, h, tratti});
+  };
+  const apriScritta = (x, y) => {
+    const d = disRef.current;
+    // tocco una scritta che c'è già: la modifico
+    let idx = -1;
+    for(let i = d.tratti.length - 1; i >= 0; i--){
+      const t = d.tratti[i];
+      if(t.t !== 'testo') continue;
+      const b = lavMisura(t);
+      if(x >= b.x - 6 && x <= b.x + b.w + 6 && y >= b.y - 6 && y <= b.y + b.h + 6){ idx = i; break; }
+    }
+    const nuovo = idx >= 0 ? {...d.tratti[idx], idx}
+                           : {x, y: Math.max(0, y - (LAV_CORPI[spessore]||24) * 0.6), s: LAV_CORPI[spessore] || 24, c: colore, testo:'', idx:null};
+    scrivoRef.current = nuovo; setScrivo(nuovo);
+    setTimeout(()=>{ if(areaRef.current){ areaRef.current.focus(); const n = areaRef.current.value.length; areaRef.current.setSelectionRange(n, n); } }, 0);
+  };
+
   const giu = (e) => {
+    lavAttiva = mioId.current;
     if(e.pointerType === 'pen' && !ditoRef.current){ setDitoScorre(true); local.set('quaderno:ditoScorre', true); }
     if(e.pointerType === 'touch' && ditoRef.current){
       // con la penna in uso il dito serve a scorrere il foglio
@@ -4644,6 +4818,12 @@ function Lavagna({value, onChange, docKey}){
     e.preventDefault();
     e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);
     const [x, y] = punto(e);
+    if(strumento === 'testo'){
+      if(scrivoRef.current) chiudiScritta();   // la scritta aperta si salva e se ne apre un'altra dove ho toccato
+      apriScritta(x, y);
+      return;
+    }
+    if(scrivoRef.current) chiudiScritta();
     if(strumento === 'gomma'){
       cancellatiRef.current = false;
       correnteRef.current = {gomma:true, id:e.pointerId};
@@ -4716,8 +4896,8 @@ function Lavagna({value, onChange, docKey}){
   const allunga = () => cambia({...disRef.current, h: disRef.current.h + LAV_PAGINA}, false);
   const accorcia = () => {
     const d = disRef.current;
-    let maxY = 0; d.tratti.forEach(t=>{ const p = t.p || []; for(let i = 1; i < p.length; i += 2) if(p[i] > maxY) maxY = p[i]; });
-    const h = Math.max(LAV_PAGINA, Math.ceil((maxY + 100) / (LAV_PAGINA/2)) * (LAV_PAGINA/2));
+    let maxY = 0; d.tratti.forEach(t=>{ const f = lavFondo(t); if(f > maxY) maxY = f; });
+    const h = Math.max(compatta ? 500 : LAV_PAGINA, Math.ceil((maxY + 100) / (LAV_PAGINA/2)) * (LAV_PAGINA/2));
     if(h < d.h) cambia({...d, h}, false);
   };
 
@@ -4725,6 +4905,7 @@ function Lavagna({value, onChange, docKey}){
   useEffect(()=>{
     const k = (e) => {
       if(!(e.ctrlKey || e.metaKey) || !wrapRef.current) return;
+      if(lavAttiva !== mioId.current) return;
       const a = document.activeElement;
       if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
       if(a && a.isContentEditable) return;
@@ -4735,19 +4916,27 @@ function Lavagna({value, onChange, docKey}){
     return () => document.removeEventListener('keydown', k);
   }, []);
 
+  const scegli = (s) => { if(scrivoRef.current) chiudiScritta(); setStrumento(s); };
+  // chi mi contiene può chiedermi il disegno aggiornato all'ultimo tratto (scritta aperta compresa)
+  if(apiRef) apiRef.current = { dati: () => { if(scrivoRef.current) chiudiScritta(); return disRef.current; } };
   const pw = storia.current;
   const coloriVisti = strumento === 'evid' ? LAV_EVID : LAV_COLORI;
   const coloreAttivo = strumento === 'evid' ? coloreEvid : colore;
   return (
     <div className="lav">
       <div className="lav-tools">
-        <button className={strumento==='penna'?'on':''} onClick={()=>setStrumento('penna')} title="Penna">✏️<span> Penna</span></button>
-        <button className={strumento==='evid'?'on':''} onClick={()=>setStrumento('evid')} title="Evidenziatore">🖍<span> Evid.</span></button>
-        <button className={strumento==='gomma'?'on':''} onClick={()=>setStrumento('gomma')} title="Gomma: cancella i tratti che tocchi">⌫<span> Gomma</span></button>
+        <button className={strumento==='penna'?'on':''} onClick={()=>scegli('penna')} title="Penna">✏️<span> Penna</span></button>
+        <button className={strumento==='evid'?'on':''} onClick={()=>scegli('evid')} title="Evidenziatore">🖍<span> Evid.</span></button>
+        <button className={strumento==='testo'?'on':''} onClick={()=>scegli('testo')} title="Testo: tocca il foglio dove vuoi scrivere (o una scritta per modificarla)">𝐓<span> Testo</span></button>
+        <button className={strumento==='gomma'?'on':''} onClick={()=>scegli('gomma')} title="Gomma: cancella i tratti e le scritte che tocchi">⌫<span> Gomma</span></button>
         <span className="lav-sep"></span>
         {strumento !== 'gomma' && coloriVisti.map(c=>(
           <button key={c} className={'lav-col'+(coloreAttivo===c?' on':'')} style={{background:c}}
-            onClick={()=> strumento==='evid' ? setColoreEvid(c) : setColore(c)} title="Colore"></button>
+            onClick={()=>{
+              if(strumento==='evid'){ setColoreEvid(c); return; }
+              setColore(c);
+              if(scrivoRef.current){ const n = {...scrivoRef.current, c}; scrivoRef.current = n; setScrivo(n); }
+            }} title="Colore"></button>
         ))}
         {strumento !== 'gomma' && (
           <label className="lav-col lav-altro" title="Altro colore">
@@ -4755,8 +4944,11 @@ function Lavagna({value, onChange, docKey}){
           </label>
         )}
         <span className="lav-sep"></span>
-        <select value={spessore} onChange={e=>setSpessore(parseInt(e.target.value,10))} title={strumento==='gomma'?'Grandezza della gomma':'Spessore'}>
-          {LAV_SPESSORI.map(s=><option key={s.v} value={s.v}>{s.n}</option>)}
+        <select value={spessore} onChange={e=>{
+            const v = parseInt(e.target.value,10); setSpessore(v);
+            if(scrivoRef.current){ const n = {...scrivoRef.current, s: LAV_CORPI[v] || 24}; scrivoRef.current = n; setScrivo(n); }
+          }} title={strumento==='gomma'?'Grandezza della gomma':strumento==='testo'?'Grandezza del testo':'Spessore'}>
+          {LAV_SPESSORI.map(s=><option key={s.v} value={s.v}>{strumento==='testo' ? (s.n==='Fine'?'Piccolo':s.n==='Media'?'Normale':s.n==='Grossa'?'Grande':'Titolo') : s.n}</option>)}
         </select>
         <span className="lav-sep"></span>
         <button onClick={annulla} disabled={!pw.passi.length} title="Annulla (Ctrl/Cmd+Z)">↶</button>
@@ -4776,9 +4968,22 @@ function Lavagna({value, onChange, docKey}){
       </div>
       <div className="lav-foglio" ref={wrapRef}>
         <canvas ref={cRef}></canvas>
-        <canvas ref={oRef} className={'lav-sopra'+(strumento==='gomma'?' gomma':'')}
+        <canvas ref={oRef} className={'lav-sopra'+(strumento==='gomma'?' gomma':strumento==='testo'?' testo':'')}
           onPointerDown={giu} onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}
           onContextMenu={e=>e.preventDefault()}></canvas>
+        {scrivo && (()=>{ const k = scalaRef.current || 1; return (
+          <textarea ref={areaRef} className="lav-scritta" value={scrivo.testo} placeholder="Scrivi…"
+            rows={Math.max(1, (scrivo.testo||'').split('\n').length)}
+            style={{left: scrivo.x * k, top: scrivo.y * k, fontSize: scrivo.s * k, color: scrivo.c,
+                    lineHeight: 1.25, fontFamily: LAV_FONT,
+                    width: Math.max(160, (lavMisura({...scrivo, testo: (scrivo.testo||'') + 'MM'}).w) * k)}}
+            onChange={e=>{ const n = {...scrivoRef.current, testo: e.target.value}; scrivoRef.current = n; setScrivo(n); }}
+            onKeyDown={e=>{
+              if(e.key === 'Escape'){ e.preventDefault(); chiudiScritta(); }
+              if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); chiudiScritta(); }
+            }}
+            onBlur={()=>setTimeout(()=>{ if(scrivoRef.current && document.activeElement !== areaRef.current) chiudiScritta(); }, 120)}/>
+        ); })()}
       </div>
     </div>
   );
@@ -5442,6 +5647,8 @@ function App(){
             <>
               <div className="sec-h"><h3>Disegno</h3><div className="rule"></div></div>
               <Lavagna docKey={doc.id} value={doc.disegno} onChange={dis=>onDisegno(dis, doc.id)}/>
+              <div className="sec-h"><h3>Appunti</h3><div className="rule"></div></div>
+              <RichText docKey={doc.id} value={doc.corpo} onChange={onBody} placeholder="Note sul disegno…"/>
             </>
           ) : (
             <>
