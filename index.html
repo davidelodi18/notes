@@ -876,6 +876,91 @@ function canvasVuoto(c){
   }catch(e){ return false; }   // nel dubbio, procedo
 }
 
+/* ═══ PDF diretto in alta definizione ═══
+   Ogni pagina A4 viene disegnata a parte a circa 400 dpi (prima tutto il documento finiva in
+   un'unica immagine a ~250 dpi, e sui documenti lunghi il browser la rimpiccioliva).
+   I tagli tra una pagina e l'altra cadono tra due righe, mai a metà di una riga, di una foto
+   o di una riga di tabella; un titolo non resta da solo in fondo alla pagina. */
+const PDF_DPI = 400;
+async function pdfHd(nome, contenuto, o){
+  const mm = MARGINI[o.margini] || MARGINI.normali;
+  const pagW = 210, pagH = 297;
+  const mT = mm[0], mL = mm[1], mB = mm[0] + 2;
+  const largMm = pagW - 2 * mL, altMm = pagH - mT - mB;
+  const pxMm = 96 / 25.4;                                    // come nel resto della pagina: 96 px per pollice
+  const largPx = Math.round(largMm * pxMm), altPx = Math.floor(altMm * pxMm);
+
+  const host = document.createElement('div');
+  host.style.cssText = `position:absolute;left:-30000px;top:0;width:${largPx}px;background:#fff;z-index:-1`;
+  host.innerHTML = `<div class="pdfdoc">${contenuto}</div>`;
+  document.body.appendChild(host);
+  try{
+    // aspetto immagini e caratteri, altrimenti escono vuoti o con il carattere sbagliato
+    await Promise.all(Array.from(host.querySelectorAll('img')).map(im => im.complete ? 0 :
+      new Promise(r=>{ im.onload = im.onerror = r; setTimeout(r, 4000); })));
+    try{ if(document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, new Promise(r=>setTimeout(r, 2500))]); }catch(e){}
+
+    const base = host.getBoundingClientRect();
+    const top0 = base.top;
+    const totale = Math.ceil(host.scrollHeight);
+    // ciò che non va tagliato: ogni riga di testo, le foto, le righe delle tabelle
+    const pezzi = [];
+    const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    let t; const rg = document.createRange();
+    while((t = w.nextNode())){
+      if(!t.textContent.trim()) continue;
+      rg.selectNodeContents(t);
+      Array.from(rg.getClientRects()).forEach(r=>{ if(r.height > 0) pezzi.push([r.top - top0, r.bottom - top0]); });
+    }
+    host.querySelectorAll('img, tr, figure, hr').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      if(r.height > 0 && r.height < altPx * 0.9) pezzi.push([r.top - top0, r.bottom - top0]);
+    });
+    const titoli = Array.from(host.querySelectorAll('h1,h2,h3,h4')).map(h=>{ const r = h.getBoundingClientRect(); return [r.top - top0, r.bottom - top0]; });
+    const tagliaQui = (y) => !pezzi.some(([a, b]) => a < y - 0.5 && b > y + 0.5);
+    const candidati = Array.from(new Set(pezzi.map(p=>Math.ceil(p[1] + 1)))).sort((a,b)=>a-b);
+
+    const tagli = [];
+    let da = 0;
+    while(da < totale - 2){
+      let fino = da + altPx;
+      if(fino >= totale){ tagli.push([da, totale]); break; }
+      // l'ultimo punto buono prima del fondo pagina (almeno a metà pagina)
+      let scelto = null;
+      for(let i = candidati.length - 1; i >= 0; i--){
+        const c = candidati[i];
+        if(c > fino) continue;
+        if(c <= da + altPx * 0.5) break;
+        if(tagliaQui(c)){ scelto = c; break; }
+      }
+      if(scelto === null) scelto = fino;                    // nessun punto buono: taglio dritto
+      // un titolo rimasto in fondo alla pagina passa alla pagina dopo
+      const orfano = titoli.find(([a, b]) => b <= scelto + 1 && b > scelto - 40 && a > da + altPx * 0.4);
+      if(orfano) scelto = Math.floor(orfano[0] - 2);
+      tagli.push([da, scelto]);
+      da = scelto;
+    }
+
+    const scala = PDF_DPI / 96;
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait', compress:true });
+    for(let i = 0; i < tagli.length; i++){
+      const [a, b] = tagli[i];
+      const alt = Math.max(1, b - a);
+      const c = await window.html2canvas(host, {
+        scale: scala, useCORS: true, backgroundColor:'#ffffff', logging:false,
+        x: 0, y: a, width: largPx, height: alt          // x e y sono relativi al contenitore
+      });
+      if(i === 0 && canvasVuoto(c)) throw new Error('pagina generata vuota');
+      if(i > 0) pdf.addPage();
+      pdf.addImage(c.toDataURL('image/png'), 'PNG', mL, mT, largMm, alt / pxMm, undefined, 'FAST');
+    }
+    pdf.save(nome);
+  } finally {
+    host.remove();
+  }
+}
+
 async function exportPdf(title, inner, filename, fmt){
   const o = fmt || FORMATO_DEF;
   if(o.pdf === 'nitido'){          // testo vero: lo produce il browser, con il suo pannello di stampa
@@ -884,8 +969,9 @@ async function exportPdf(title, inner, filename, fmt){
   }
   const nome = ((filename||title||'documento').replace(/[^\w\sàèéìòùÀÈÉÌÒÙ\-]/gi,'').trim() || 'documento') + '.pdf';
   try{
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
-    if(!window.html2pdf) throw new Error('libreria non disponibile');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    if(!window.html2canvas || !window.jspdf) throw new Error('libreria non disponibile');
 
     let st = document.getElementById('pdf-style');
     if(!st){ st = document.createElement('style'); st.id = 'pdf-style'; document.head.appendChild(st); }
@@ -913,25 +999,7 @@ async function exportPdf(title, inner, filename, fmt){
       contenuto = box.innerHTML;
     }catch(err){}
 
-    const wrapped = `<div class="pdfdoc">${contenuto}</div>`;
-    const mm = MARGINI[o.margini] || MARGINI.normali;
-    const opt = {
-      margin: [mm[0], mm[1], mm[0]+2, mm[1]],
-      filename: nome,
-      image: { type:'png' },                       // niente compressione: bordi e testo restano puliti
-      html2canvas: { scale: 3, useCORS: true, backgroundColor:'#ffffff', logging:false, scrollX:0, scrollY:0 },
-      jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-      pagebreak: { mode:['css','legacy'], avoid:['tr','figure','li','h2','h3'] }
-    };
-
-    let w = window.html2pdf().set(opt).from(wrapped, 'string');
-    w = w.toContainer().toCanvas();
-    await w;
-
-    const canvas = w.prop && w.prop.canvas;
-    if(canvas && canvasVuoto(canvas)) throw new Error('pagina generata vuota');
-
-    await w.toPdf().save();
+    await pdfHd(nome, contenuto, o);
     return true;
   }catch(e){
     console.error('PDF diretto non riuscito:', e);
@@ -4436,13 +4504,13 @@ function FormatoModal({fmt, onSave, onClose}){
         <div className="f">
           <label>Come generare il PDF</label>
           <select value={qp} onChange={e=>setQp(e.target.value)}>
-            <option value="alta">Diretto — si scarica subito, il testo è un'immagine</option>
+            <option value="alta">Diretto HD — si scarica subito, circa 400 dpi</option>
             <option value="nitido">Nitido — testo vero e selezionabile, passa dalla stampa</option>
           </select>
           <div className="spazio-sub" style={{marginTop:4}}>
             {qp === 'nitido'
               ? 'Si apre il pannello di stampa: scegli "Salva come PDF". Qualità perfetta a ogni ingrandimento.'
-              : 'Nessun passaggio in più, ma ingrandendo molto o stampando si nota la grana.'}
+              : 'Nessun passaggio in più: pagine in alta definizione, nitide anche stampate. Il testo non è selezionabile.'}
           </div>
         </div>
 
@@ -4646,7 +4714,7 @@ function disegnoPng(dis){
     tratti.forEach(t=>{ const f = lavFondo(t); if(f > maxY) maxY = f; });
     const h = Math.min(d.h || LAV_PAGINA, Math.ceil(maxY + 60));
     const c = document.createElement('canvas');
-    const k = 1.4;
+    const k = 2.5;
     c.width = Math.round(LAV_W * k); c.height = Math.round(h * k);
     const ctx = c.getContext('2d');
     ctx.setTransform(k, 0, 0, k, 0, 0);
@@ -4669,7 +4737,7 @@ function disegnoRitaglio(dis){
   const pad = 14;
   x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(LAV_W, x1 + pad); y1 = y1 + pad;
   const w = Math.max(20, x1 - x0), h = Math.max(20, y1 - y0);
-  const k = 2;
+  const k = 3;
   const c = document.createElement('canvas');
   c.width = Math.round(w * k); c.height = Math.round(h * k);
   const ctx = c.getContext('2d');
