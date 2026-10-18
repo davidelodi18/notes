@@ -414,7 +414,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .rt ul.cklist{list-style:none;padding-left:2px;margin:10px 0}
 .rt ul.cklist li{position:relative;padding-left:28px;margin:5px 0}
 .rt ul.cklist li::before{content:'\2610';position:absolute;left:0;top:0;width:22px;font-family:var(--sans);
-  font-size:17px;line-height:1.55;color:var(--muted);cursor:pointer}
+  font-size:1em;line-height:inherit;color:var(--muted);cursor:pointer}
 .rt ul.cklist li:hover::before{color:var(--accent)}
 .rt ul.cklist li.fatto::before{content:'\2611';color:var(--accent)}
 .rt ul.cklist li.fatto{color:var(--muted);text-decoration:line-through}
@@ -1168,6 +1168,8 @@ function RichText({value, onChange, placeholder, docKey}){
   useEffect(()=>{
     if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
     docNelDom.current = docKey;               // da qui in poi l'editor contiene questo foglio
+    // stili doppi lasciati dalle versioni di prima: li sistemo e, se cambia qualcosa, salvo
+    setTimeout(()=>{ try{ if(docNelDom.current === docKey && pulisciStiliDoppi()) emit(true); }catch(err){} }, 50);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
     storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
@@ -1387,6 +1389,62 @@ function RichText({value, onChange, placeholder, docKey}){
   /* stile su un pezzo di testo selezionato (colore, corpo, carattere…).
      Pezzo di testo per pezzo di testo: una selezione su più paragrafi o voci d'elenco
      resta com'era come struttura (prima veniva estratta e rimessa tutta in una riga). */
+  /* ═══ niente stili doppi uno dentro l'altro ═══
+     Cambiando il corpo a un testo che stava già in uno span con un altro corpo, il vecchio
+     restava "fuori": il testo si vedeva giusto ma la riga restava alta come il corpo vecchio
+     (righe a distanze diverse, caselle storte). Ora il vecchio stile viene tolto da sopra. */
+  const kebab = k => k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase());
+  const spezzaIntorno = (A, figlio) => {
+    // divide A in [prima][A con solo figlio][dopo], tenendo lo stesso stile sui pezzi fuori
+    const prima = document.createRange(); prima.setStart(A, 0); prima.setEndBefore(figlio);
+    const dopo = document.createRange(); dopo.setStartAfter(figlio); dopo.setEnd(A, A.childNodes.length);
+    const fPrima = prima.extractContents(), fDopo = dopo.extractContents();
+    const pieno = f => f.textContent.length > 0 || (f.querySelector && f.querySelector('img,br'));
+    if(pieno(fPrima)){ const c = A.cloneNode(false); c.appendChild(fPrima); A.parentNode.insertBefore(c, A); }
+    if(pieno(fDopo)){ const c = A.cloneNode(false); c.appendChild(fDopo); A.parentNode.insertBefore(c, A.nextSibling); }
+  };
+  const togliStileSopra = (sp, chiavi) => {
+    let figlio = sp, A = sp.parentElement;
+    while(A && A !== ref.current && !RX_BLOCCO_TESTO.test(A.tagName)){
+      const su = A.parentElement;
+      if(A.tagName === 'SPAN' && !A.className && chiavi.some(k=>A.style[k])){
+        spezzaIntorno(A, figlio);
+        chiavi.forEach(k=>A.style.removeProperty(kebab(k)));
+        if(!A.getAttribute('style')){                  // span rimasto senza stile: lo tolgo
+          while(A.firstChild) A.parentNode.insertBefore(A.firstChild, A);
+          A.remove();
+        } else figlio = A;
+      } else figlio = A;
+      A = su;
+    }
+  };
+  /* pulizia dei documenti già scritti: uno span che ha il corpo (o il carattere) ma il cui testo
+     ha tutto un corpo suo più interno non serve a niente, e allarga la riga: lo tolgo */
+  const pulisciStiliDoppi = () => {
+    if(!ref.current) return false;
+    let cambiato = false;
+    ['fontSize','fontFamily'].forEach(k=>{
+      Array.from(ref.current.querySelectorAll('span[style]')).reverse().forEach(A=>{
+        if(!A.isConnected || !A.style[k] || A.className) return;
+        const w = document.createTreeWalker(A, NodeFilter.SHOW_TEXT);
+        let t, tutti = true, alcuno = false;
+        while((t = w.nextNode())){
+          if(!t.textContent.length) continue;
+          alcuno = true;
+          let x = t.parentElement, coperto = false;
+          while(x && x !== A){ if(x.style && x.style[k]){ coperto = true; break; } x = x.parentElement; }
+          if(!coperto){ tutti = false; break; }
+        }
+        if(alcuno && tutti){
+          A.style.removeProperty(kebab(k));
+          if(!A.getAttribute('style')){ while(A.firstChild) A.parentNode.insertBefore(A.firstChild, A); A.remove(); }
+          cambiato = true;
+        }
+      });
+    });
+    return cambiato;
+  };
+
   const applicaStileTesto = (stile) => {
     const sel = window.getSelection();
     if(!sel || !sel.rangeCount || sel.isCollapsed) return false;
@@ -1406,6 +1464,8 @@ function RichText({value, onChange, placeholder, docKey}){
         sp.appendChild(t);
         spans.push(sp);
       });
+      const chiavi = Object.keys(stile).filter(k=>stile[k]);
+      spans.forEach(sp=>togliStileSopra(sp, chiavi));
       const padri = new Set(spans.map(x=>x.parentNode));
       unisciSpanUguali(padri);
       const vivi = spans.filter(x=>x.isConnected);
