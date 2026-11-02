@@ -1267,7 +1267,11 @@ function RichText({value, onChange, placeholder, docKey}){
     if(ref.current && ref.current.innerHTML !== (value||'')) ref.current.innerHTML = value||'';
     docNelDom.current = docKey;               // da qui in poi l'editor contiene questo foglio
     // stili doppi lasciati dalle versioni di prima: li sistemo e, se cambia qualcosa, salvo
-    setTimeout(()=>{ try{ if(docNelDom.current === docKey && pulisciStiliDoppi()) emit(true); }catch(err){} }, 50);
+    setTimeout(()=>{ try{
+      if(docNelDom.current !== docKey) return;
+      const a = pulisciStiliDoppi(), b = srotolaContenitori(), c = sistemaGruppi();
+      if(a || b || c) emit(true);
+    }catch(err){} }, 50);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
     storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
@@ -1732,7 +1736,125 @@ function RichText({value, onChange, placeholder, docKey}){
     return montaGruppo(valido ? prima.innerHTML : nomeDiScorta, [corpo], valido ? prima : null, daTogliere);
   };
 
+  /* ═══ contenitori "invisibili" ═══
+     Il testo incollato da Word o da una pagina web arriva spesso chiuso dentro un <div> unico:
+     a video non si vede, ma per l'editor tutto il documento diventava UN blocco solo, e
+     "Raggruppa" non riusciva a prendere le singole sezioni. Qui quei contenitori vengono aperti
+     (il contenuto resta identico) e si tolgono gli avanzi di Word e i gruppi vuoti. */
+  const RX_DENTRO_BLOCCHI = /^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|TABLE|BLOCKQUOTE|PRE|FIGURE|HR|SECTION|ARTICLE)$/;
+  const srotolaContenitori = (radice) => {
+    const root = radice || ref.current;
+    if(!root) return false;
+    let cambiato = false, giro = true;
+    while(giro){
+      giro = false;
+      Array.from(root.querySelectorAll('div, section, article')).forEach(el=>{
+        if(!el.isConnected || el.className || el.closest('td,th,figure')) return;
+        const p = el.parentElement;
+        if(!p || !(p === root || p.classList.contains('grp-c'))) return;   // solo quelli al primo livello del foglio o di un gruppo
+        if(!Array.from(el.children).some(c=>RX_DENTRO_BLOCCHI.test(c.tagName))) return;
+        const stile = el.getAttribute('style');
+        while(el.firstChild){
+          const c = el.firstChild;
+          // il testo sciolto del contenitore va in un paragrafo suo
+          if(c.nodeType === 3 && c.textContent.trim()){ const pp = document.createElement('p'); pp.appendChild(c); if(stile) pp.setAttribute('style', stile); p.insertBefore(pp, el); }
+          else if(c.nodeType === 3 || c.nodeType === 8) c.remove();
+          else p.insertBefore(c, el);
+        }
+        el.remove();
+        cambiato = giro = true;
+      });
+    }
+    return cambiato;
+  };
+  const sistemaGruppi = () => {
+    if(!ref.current) return false;
+    let cambiato = false;
+    // avanzi di Word (commenti condizionali) e paragrafi rimasti vuoti per colpa loro
+    const w = document.createTreeWalker(ref.current, NodeFilter.SHOW_COMMENT);
+    const commenti = []; let c; while((c = w.nextNode())) commenti.push(c);
+    commenti.forEach(x=>{ const pp = x.parentNode; x.remove(); cambiato = true;
+      if(pp && pp !== ref.current && pp.tagName === 'P' && !pp.textContent.trim() && !pp.querySelector('img,br,table')) pp.remove(); });
+    Array.from(ref.current.querySelectorAll('.grp')).forEach(g=>{
+      if(!g.isConnected) return;
+      let t = Array.from(g.children).find(x=>x.classList.contains('grp-t'));
+      const cnt = Array.from(g.children).find(x=>x.classList.contains('grp-c'));
+      // gruppo senza titolo: il primo blocco che non è il contenuto diventa il titolo
+      if(!t){
+        const cand = Array.from(g.children).find(x=>!x.classList.contains('grp-c'));
+        if(cand){ const nt = document.createElement('div'); nt.className = 'grp-t'; nt.innerHTML = cand.innerHTML; cand.replaceWith(nt); t = nt; cambiato = true; }
+      }
+      // gruppo vuoto (niente titolo e niente contenuto): via
+      const testo = (t ? t.textContent : '') + (cnt ? cnt.textContent : '');
+      if(!testo.replace(/[\s ]/g,'') && !(cnt && cnt.querySelector('img,table'))){ g.remove(); cambiato = true; }
+    });
+    return cambiato;
+  };
+  /* apre i contenitori tenendo ferma la selezione (con due segnalini invisibili) */
+  const srotolaConSelezione = () => {
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || !ref.current.contains(sel.getRangeAt(0).commonAncestorContainer)) return srotolaContenitori();
+    const r = sel.getRangeAt(0);
+    const m1 = document.createElement('span'), m2 = document.createElement('span');
+    m1.setAttribute('data-seg','a'); m2.setAttribute('data-seg','b');
+    try{ const rb = r.cloneRange(); rb.collapse(false); rb.insertNode(m2); const ra = r.cloneRange(); ra.collapse(true); ra.insertNode(m1); }catch(e){ return srotolaContenitori(); }
+    const cambiato = srotolaContenitori();
+    try{ const nr = document.createRange(); nr.setStartAfter(m1); nr.setEndBefore(m2); sel.removeAllRanges(); sel.addRange(nr); }catch(e){}
+    m1.remove(); m2.remove();
+    return cambiato;
+  };
+
+  /* più titoli nella selezione: un gruppo per ogni titolo, con dentro quello che c'è fino al titolo dopo
+     (come nel resoconto di agosto) */
+  const eTitolo = (el) => {
+    if(!el || el.nodeType !== 1) return false;
+    if(/^H[1-4]$/.test(el.tagName)) return true;
+    if(el.tagName !== 'P') return false;
+    const t = el.textContent.replace(/[\s ]/g,'');
+    if(!t || t.length > 70) return false;
+    // un paragrafo corto tutto in grassetto conta come titolo
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n, tutto = true;
+    while((n = w.nextNode())){ if(!n.textContent.trim()) continue; if(!eGrassetto(getComputedStyle(n.parentElement).fontWeight)){ tutto = false; break; } }
+    return tutto && el.textContent.trim() === el.textContent.trim().toUpperCase();
+  };
+  const raggruppaPerTitoli = (bl) => {
+    const titoli = bl.filter(eTitolo);
+    if(titoli.length < 2) return false;
+    const ultimo = bl[bl.length - 1];
+    let fatti = 0;
+    titoli.forEach((t, i)=>{
+      const fine = i + 1 < titoli.length ? titoli[i + 1] : null;
+      const corpi = [];
+      let x = t.nextElementSibling;
+      // fino al titolo dopo (o all'ultimo blocco selezionato), righe vuote comprese
+      while(x && x !== fine && (bl.indexOf(x) >= 0 || eBloccoVuoto(x))){
+        corpi.push(x);
+        if(x === ultimo) break;
+        x = x.nextElementSibling;
+      }
+      // le righe vuote in coda restano fuori
+      while(corpi.length && eBloccoVuoto(corpi[corpi.length - 1])) corpi.pop();
+      while(corpi.length && eBloccoVuoto(corpi[0])) corpi.shift().remove();
+      if(!corpi.length) return;
+      const grp = document.createElement('div'); grp.className = 'grp';
+      const tit = document.createElement('div'); tit.className = 'grp-t';
+      const cnt = document.createElement('div'); cnt.className = 'grp-c';
+      tit.innerHTML = '<b>' + t.innerHTML + '</b>';
+      t.parentNode.insertBefore(grp, t);
+      grp.appendChild(tit);
+      corpi.forEach(b=>cnt.appendChild(b));
+      grp.appendChild(cnt);
+      t.remove();
+      fatti++;
+    });
+    if(!fatti) return false;
+    puliscoSel(); setInTable(false); setTblBox(null);
+    emit(true);
+    return true;
+  };
+
   const raggruppa = () => {
+    srotolaConSelezione();                       // il testo incollato chiuso in un <div> unico va aperto prima
     const sel = window.getSelection();
     const r = (sel && sel.rangeCount) ? sel.getRangeAt(0) : null;
     const haSelezione = !!(r && !sel.isCollapsed
@@ -1747,6 +1869,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
     /* ── con una selezione: esattamente i blocchi selezionati, niente di quello che sta sotto ── */
     if(haSelezione){
+      if(bl.length >= 3 && raggruppaPerTitoli(bl)) return;
       if(bl.length >= 2){
         const primo = bl[0];
         if(/^(UL|OL|TABLE)$/.test(primo.tagName)){
