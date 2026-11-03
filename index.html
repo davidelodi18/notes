@@ -256,7 +256,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   padding:6px 8px;outline:none;background:#fbfcfb}
 .f input:focus,.f select:focus,.f textarea:focus{border-color:var(--accent);background-color:#fff}
 /* tendine tutte uguali su ogni dispositivo (su iPhone le doppie frecce di sistema stonavano) */
-.f select,select.btn,.rt-tools select.mini,.lav-tools select{-webkit-appearance:none;appearance:none;
+.f select,select.btn,.rt-tools select.mini,.lav-tools select,.corpo-box .corpo-lista{-webkit-appearance:none;appearance:none;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237b8a83' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;padding-right:26px!important}
 .rt-tools select.mini,.lav-tools select{background-color:var(--paper)}
 .f input,.f select{min-height:34px}
@@ -444,6 +444,13 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 /* ── cose da fare, corpo e carattere ─────────────────── */
 .nav-item .n.todo,.riga-cart .q.todo{background:var(--amber-soft);color:var(--amber);border-radius:20px;
   padding:1px 7px;font-size:11px;margin-left:3px;font-variant-numeric:tabular-nums}
+.corpo-box{position:relative;display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:4px;background:var(--paper);height:28px;flex:none}
+.corpo-box:focus-within{border-color:var(--accent)}
+.corpo-in{width:44px;border:0;outline:none;background:transparent;font-size:12.5px;padding:0 2px 0 7px;text-align:left;font-family:var(--sans);color:var(--ink)}
+.corpo-in::placeholder{color:var(--muted)}
+.corpo-box .corpo-lista{width:20px;height:100%;border:0;border-left:1px solid var(--line-soft);border-radius:0 4px 4px 0;cursor:pointer;
+  color:transparent;padding:0!important;background-position:center center;background-color:transparent}
+.corpo-box .corpo-lista option{color:var(--ink)}
 .rt-tools select.mini{border:1px solid var(--line);background-color:var(--paper);border-radius:4px;
   padding:2px 3px;font-size:12px;color:var(--ink-soft);max-width:112px;height:27px;align-self:center;
   margin:0 1px}
@@ -543,6 +550,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   /* barra del testo: si scorre di lato; la sfumatura a destra dice che c'è altro */
   .rt-tools{-webkit-mask-image:linear-gradient(to right,#000 85%,rgba(0,0,0,.25));mask-image:linear-gradient(to right,#000 85%,rgba(0,0,0,.25))}
   .rt-tools select.mini{height:36px;flex:none;width:92px}
+  .corpo-box{height:36px}
+  .corpo-in{width:48px;font-size:16px}
+  .corpo-box .corpo-lista{width:28px}
   /* scrivendo, il browser tiene il cursore fuori da sotto le barre fisse in alto */
   html{scroll-padding-top:130px;scroll-padding-bottom:24px}
   /* niente "rimbalzo" della pagina che sposta le barre mentre si scrive */
@@ -2142,6 +2152,23 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   /* corpo del carattere: vale sulle celle scelte, sul testo selezionato o sul paragrafo */
+  /* corpo scritto a mano nella casella */
+  const [corpoScritto, setCorpoScritto] = useState('');
+  const [corpoFocus, setCorpoFocus] = useState(false);
+  const corpoFatto = useRef(false);                 // già applicato con Invio: l'uscita dalla casella non lo rifà
+  const corpoRef = useRef(null);
+  const applicaCorpoScritto = (forza) => {
+    if(!forza && corpoFatto.current){ corpoFatto.current = false; return; }
+    const testo = (corpoScritto || '').trim().replace(',', '.');
+    setCorpoFocus(false);
+    if(!testo) return;
+    const n = Math.round(parseFloat(testo) * 2) / 2;          // al mezzo punto, come Word
+    if(!n || isNaN(n)) return;
+    if(n < 1 || n > 400){ alert('Scrivi un corpo tra 1 e 400.'); return; }
+    if(fmtVisto.corpo && parseFloat(fmtVisto.corpo) === n) return;   // è già quello
+    setCorpo(n);
+    setTimeout(()=>{ salvaRange(); aggiornaFmtVisto(); }, 0);
+  };
   const setCorpo = (px) => {
     if(!px) return;
     const st = {fontSize: px + 'px'};
@@ -3951,14 +3978,35 @@ function RichText({value, onChange, placeholder, docKey}){
         <button onClick={()=>cmd('formatBlock','<h2>')} title="Titolo">T1</button>
         <button onClick={()=>cmd('formatBlock','<h3>')} title="Sottotitolo">T2</button>
         <button onClick={()=>cmd('formatBlock','<p>')} title="Testo normale">¶</button>
-        <select className="mini" title="Corpo del carattere (mostra quello del testo selezionato)" value={fmtVisto.corpo}
-          onMouseDown={()=>salvaRange()}
-          onChange={e=>{ const v = e.target.value; if(v){ setCorpo(parseFloat(v)); setTimeout(aggiornaFmtVisto, 0); } }}>
-          <option value="">Corpo</option>
-          {fmtVisto.corpo && !CORPI.includes(parseFloat(fmtVisto.corpo)) &&
-            <option value={fmtVisto.corpo}>{fmtVisto.corpo.replace('.',',')}</option>}
-          {CORPI.map(c=><option key={c} value={String(c)}>{c}</option>)}
-        </select>
+        {/* corpo: si scrive a mano come in Word (anche 10,5) oppure si sceglie dall'elenco con la freccina */}
+        <span className="corpo-box" title="Corpo del carattere: scrivi il numero e premi Invio, oppure scegli dall'elenco">
+          <input ref={corpoRef} className="corpo-in" inputMode="decimal" value={corpoFocus ? corpoScritto : (fmtVisto.corpo ? fmtVisto.corpo.replace('.',',') : '')}
+            placeholder="Corpo"
+            onMouseDown={()=>salvaRange()} onTouchStart={()=>salvaRange()}
+            onFocus={e=>{ corpoFatto.current = false; setCorpoScritto(fmtVisto.corpo ? fmtVisto.corpo.replace('.',',') : ''); setCorpoFocus(true); setTimeout(()=>{ try{ e.target.select(); }catch(err){} }, 0); }}
+            onChange={e=>setCorpoScritto(e.target.value.replace(/[^0-9.,]/g,''))}
+            onKeyDown={e=>{
+              if(e.key === 'Enter'){ e.preventDefault(); corpoFatto.current = true; applicaCorpoScritto(true); }
+              else if(e.key === 'Escape'){ e.preventDefault(); setCorpoScritto(''); setCorpoFocus(false); ref.current.focus(); ripristinaRange(); }
+              else if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+                e.preventDefault();
+                const n = parseFloat((corpoScritto || fmtVisto.corpo || '17').replace(',','.')) || 17;
+                const v = Math.max(1, Math.min(400, n + (e.key === 'ArrowUp' ? 1 : -1)));
+                setCorpoScritto(String(v).replace('.',','));
+                corpoFatto.current = true;                 // il passaggio all'editor non deve riapplicare il valore vecchio
+                setCorpo(v);
+                setTimeout(()=>{ salvaRange(); aggiornaFmtVisto(); corpoFatto.current = true;
+                  if(corpoRef.current){ corpoRef.current.focus(); setCorpoScritto(String(v).replace('.',',')); } }, 0);
+              }
+            }}
+            onBlur={()=>{ applicaCorpoScritto(); corpoFatto.current = false; setCorpoFocus(false); }}/>
+          <select className="corpo-lista" value="" tabIndex={-1} aria-label="Scegli il corpo"
+            onMouseDown={()=>salvaRange()}
+            onChange={e=>{ const v = e.target.value; if(v){ setCorpo(parseFloat(v)); setTimeout(aggiornaFmtVisto, 0); } }}>
+            <option value="">—</option>
+            {CORPI.map(c=><option key={c} value={String(c)}>{c}</option>)}
+          </select>
+        </span>
         <select className="mini" title="Tipo di carattere (mostra quello del testo selezionato)" value={fmtVisto.fam}
           onMouseDown={()=>salvaRange()}
           onChange={e=>{ const v = e.target.value; if(v && !v.startsWith('X:')){ setFamiglia(v==='DEF' ? '' : v); setTimeout(aggiornaFmtVisto, 0); } }}>
