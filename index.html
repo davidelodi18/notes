@@ -1279,8 +1279,8 @@ function RichText({value, onChange, placeholder, docKey}){
     // stili doppi lasciati dalle versioni di prima: li sistemo e, se cambia qualcosa, salvo
     setTimeout(()=>{ try{
       if(docNelDom.current !== docKey) return;
-      const a = pulisciStiliDoppi(), b = srotolaContenitori(), c = sistemaGruppi();
-      if(a || b || c) emit(true);
+      const a = pulisciStiliDoppi(), b = srotolaContenitori(), c = sistemaGruppi(), d = sistemaVociSciolte(), f = rigaSottoGruppi();
+      if(a || b || c || d || f) emit(true);
     }catch(err){} }, 50);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
@@ -1321,6 +1321,98 @@ function RichText({value, onChange, placeholder, docKey}){
       if(li.classList.contains('fatto') && !li.textContent.replace(/\u00a0/g,'').trim()) li.classList.remove('fatto');
     });
   };
+  /* ═══ uscire da un gruppo ═══
+     Un gruppo in fondo al foglio non lasciava nessuna riga sotto di sé: il cursore restava
+     intrappolato dentro e tutto quello che scrivevi finiva nel gruppo.
+     Ora sotto a un gruppo c'è sempre una riga libera, e un Invio su una riga vuota in fondo
+     al gruppo (o su una voce d'elenco vuota in fondo) porta il cursore fuori, sotto il gruppo. */
+  const rigaSottoGruppi = () => {
+    if(!ref.current) return false;
+    let cambiato = false;
+    Array.from(ref.current.querySelectorAll('.grp')).forEach(g=>{
+      const dopo = g.nextElementSibling;
+      if(!dopo || dopo.classList.contains('grp')){
+        const p = document.createElement('p'); p.appendChild(document.createElement('br'));
+        g.parentNode.insertBefore(p, dopo);
+        cambiato = true;
+      }
+    });
+    return cambiato;
+  };
+  const rigaVuota = (el) => !el.textContent.replace(/[\s ​]/g,'') && !el.querySelector('img,table,figure');
+  const esciDalGruppo = (e) => {
+    if(e.key !== 'Enter' || e.shiftKey) return false;
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount || !sel.isCollapsed) return false;
+    let n = sel.anchorNode; if(n && n.nodeType === 3) n = n.parentElement;
+    if(!n || !ref.current.contains(n)) return false;
+    const cnt = n.closest('.grp-c');
+    if(!cnt) return false;
+    // la riga del cursore, a livello del contenuto del gruppo
+    let riga = n.closest('li') || n.closest('p,div,h1,h2,h3,h4,blockquote');
+    if(!riga || !cnt.contains(riga) || riga === cnt) return false;
+    if(!rigaVuota(riga)) return false;
+    // dev'essere l'ultima cosa del gruppo (l'ultima voce dell'ultimo elenco, o l'ultima riga)
+    let blocco = riga;
+    if(riga.tagName === 'LI'){
+      const lista = riga.parentElement;
+      if(riga.nextElementSibling || lista.parentElement !== cnt) return false;   // solo l'ultima voce di un elenco "di primo livello"
+      blocco = lista;
+    }
+    if(blocco.parentElement !== cnt || blocco.nextElementSibling) return false;
+    e.preventDefault();
+    const grp = cnt.closest('.grp');
+    // tolgo la riga vuota (e l'elenco, se resta senza voci)
+    if(riga.tagName === 'LI'){ const lista = riga.parentElement; riga.remove(); if(!lista.querySelector('li')) lista.remove(); }
+    else riga.remove();
+    if(!cnt.children.length){ const pp = document.createElement('p'); pp.appendChild(document.createElement('br')); cnt.appendChild(pp); }
+    let dopo = grp.nextElementSibling;
+    if(!dopo || !(dopo.tagName === 'P' && rigaVuota(dopo))){
+      const p = document.createElement('p'); p.appendChild(document.createElement('br'));
+      grp.parentNode.insertBefore(p, dopo);
+      dopo = p;
+    }
+    const r = document.createRange(); r.setStart(dopo, 0); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+    try{ dopo.scrollIntoView({block:'nearest'}); }catch(err){}
+    emit(true);
+    return true;
+  };
+  /* voci d'elenco rimaste senza elenco (succede dopo copia/incolla o spostamenti): le rimetto in un elenco */
+  const sistemaVociSciolte = () => {
+    if(!ref.current) return false;
+    let cambiato = false;
+    // elenchi vuoti annidati e voci vuote "di troppo"
+    Array.from(ref.current.querySelectorAll('ul,ol')).forEach(l=>{ if(!l.querySelector('li')){ l.remove(); cambiato = true; } });
+    const contenitori = [ref.current, ...Array.from(ref.current.querySelectorAll('.grp-c'))];
+    contenitori.forEach(cont=>{
+      let x = cont.firstElementChild;
+      while(x){
+        if(x.tagName === 'LI'){
+          const voci = [];
+          while(x && x.tagName === 'LI'){ voci.push(x); x = x.nextElementSibling; }
+          const primo = voci[0];
+          let prima = primo.previousElementSibling;
+          let lista = null;
+          if(prima && /^(UL|OL)$/.test(prima.tagName)) lista = prima;
+          else if(prima && prima.classList.contains('grp')){
+            const c = prima.querySelector(':scope > .grp-c');
+            const ult = c && c.lastElementChild;
+            if(ult && /^(UL|OL)$/.test(ult.tagName)) lista = ult;
+          }
+          if(!lista){ lista = document.createElement('ul'); cont.insertBefore(lista, primo); }
+          // voci vuote in coda all'elenco che le accoglie: via
+          Array.from(lista.children).forEach(li=>{ if(li.tagName === 'LI' && rigaVuota(li) && !li.querySelector('ul,ol')) li.remove(); });
+          voci.forEach(v=>lista.appendChild(v));
+          cambiato = true;
+          continue;
+        }
+        x = x.nextElementSibling;
+      }
+    });
+    return cambiato;
+  };
+
   const emit = (subito) => {
     normalizzaSpunte();
     const html = ref.current.innerHTML
@@ -1729,6 +1821,7 @@ function RichText({value, onChange, placeholder, docKey}){
     grp.appendChild(cnt);
     (daTogliere||[]).forEach(el=>{ if(el.parentNode) el.remove(); });
     if(titoloEl && titoloEl.parentNode) titoloEl.remove();
+    rigaSottoGruppi();
     puliscoSel(); setInTable(false); setTblBox(null);
     emit(true);
     return true;
@@ -1858,6 +1951,7 @@ function RichText({value, onChange, placeholder, docKey}){
       fatti++;
     });
     if(!fatti) return false;
+    rigaSottoGruppi();
     puliscoSel(); setInTable(false); setTblBox(null);
     emit(true);
     return true;
@@ -4392,6 +4486,7 @@ function RichText({value, onChange, placeholder, docKey}){
           if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); ripeti(); return; }
           // la modalità celle vale solo dentro una tabella: fuori, le scorciatoie del testo restano attive
           if(modo === 'sel' && attivaRef.current && attivaRef.current.isConnected) return;
+          if(esciDalGruppo(e)) return;
           if(rientroElenco(e)) return;
           if(navigaTabella(e)) return;
           scorciatoiaElenco(e);
