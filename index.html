@@ -1523,16 +1523,81 @@ function RichText({value, onChange, placeholder, docKey}){
     salvaRange();
   };
 
-  /* l'editor a volte infila l'elenco dentro il paragrafo: lo rimetto al suo posto */
+  /* l'editor a volte infila l'elenco dentro il paragrafo (o dentro uno span con il corpo,
+     o in un <div> sciolto): lo rimetto al suo posto, spezzando il blocco in "prima" ed "elenco" e "dopo".
+     Prima veniva sistemato solo il caso <p><ul>, e l'elenco restava dentro la riga. */
   const sistemaElenchi = () => {
     if(!ref.current) return;
-    Array.from(ref.current.querySelectorAll('p > ul, p > ol, h1 > ul, h1 > ol, h2 > ul, h2 > ol, h3 > ul, h3 > ol'))
-      .forEach(l=>{
-        const p = l.parentElement;
-        if(!p || !p.parentNode) return;
-        p.parentNode.insertBefore(l, p);
-        if(!p.textContent.replace(/\u00a0/g,'').trim() && !p.querySelector('table,img,ul,ol')) p.remove();
-      });
+    const contenitore = x => x === ref.current || /^(UL|OL|LI|TD|TH|BLOCKQUOTE)$/.test(x.tagName) || x.classList.contains('grp-c');
+    const pieno = f => !!(f.textContent.replace(/[\s ​]/g,'') || (f.querySelector && f.querySelector('img,table,figure,[data-seg]')));
+    const togliBrAiBordi = el => {
+      while(el.lastChild && el.lastChild.nodeType === 1 && el.lastChild.tagName === 'BR' && el.childNodes.length > 1) el.lastChild.remove();
+      while(el.firstChild && el.firstChild.nodeType === 1 && el.firstChild.tagName === 'BR' && el.childNodes.length > 1) el.firstChild.remove();
+    };
+    for(let giro = 0; giro < 100; giro++){
+      const l = Array.from(ref.current.querySelectorAll('ul, ol')).find(x=>x.parentElement && !contenitore(x.parentElement));
+      if(!l) return;
+      let B = l.parentElement;
+      while(B.parentElement && !contenitore(B.parentElement)) B = B.parentElement;
+      if(!B.parentElement || (B.className && B.tagName === 'DIV')){       // gruppo o altro: non lo tocco
+        l.setAttribute('data-elenco-ok','1');
+        if(Array.from(ref.current.querySelectorAll('ul, ol')).every(x=>!x.parentElement || contenitore(x.parentElement) || x.hasAttribute('data-elenco-ok'))) break;
+        continue;
+      }
+      const dopo = document.createRange(); dopo.setStartAfter(l); dopo.setEnd(B, B.childNodes.length);
+      const fDopo = dopo.extractContents();
+      const prima = document.createRange(); prima.setStart(B, 0); prima.setEndBefore(l);
+      const fPrima = prima.extractContents();
+      const padre = B.parentNode;
+      if(pieno(fPrima)){ const c = B.cloneNode(false); c.appendChild(fPrima); togliBrAiBordi(c); padre.insertBefore(c, B); }
+      padre.insertBefore(l, B);
+      if(pieno(fDopo)){ const c = B.cloneNode(false); c.appendChild(fDopo); togliBrAiBordi(c); padre.insertBefore(c, B); }
+      B.remove();
+    }
+    ref.current.querySelectorAll('[data-elenco-ok]').forEach(x=>x.removeAttribute('data-elenco-ok'));
+  };
+
+  /* elenco puntato / numerato / titolo con il cursore che resta dov'era.
+     Il browser, facendo l'elenco, rimetteva il cursore a inizio riga e, sistemando poi i blocchi,
+     lo perdeva del tutto: si ritrovava sulla riga sotto ("va a capo a caso").
+     Due segnalini invisibili tengono il posto mentre si lavora. */
+  const bloccoTenendoCursore = (c, v) => {
+    const sel = window.getSelection();
+    let segni = false;
+    if(sel && sel.rangeCount && ref.current.contains(sel.anchorNode)){
+      const r = sel.getRangeAt(0);
+      const m1 = document.createElement('span'); m1.setAttribute('data-seg','a'); m1.textContent = '​';
+      const m2 = document.createElement('span'); m2.setAttribute('data-seg','b'); m2.textContent = '​';
+      try{
+        const rb = r.cloneRange(); rb.collapse(false); rb.insertNode(m2);
+        const ra = r.cloneRange(); ra.collapse(true); ra.insertNode(m1);
+        const nr = document.createRange(); nr.setStartBefore(m1); nr.setEndAfter(m2);
+        sel.removeAllRanges(); sel.addRange(nr);
+        segni = true;
+      }catch(err){ m1.remove(); m2.remove(); }
+    }
+    document.execCommand(c, false, v || null);
+    riordinaBlocchi();
+    if(!segni) return;
+    const a = ref.current.querySelector('[data-seg="a"]'), b = ref.current.querySelector('[data-seg="b"]');
+    try{
+      if(a && b){
+        const nr = document.createRange(); nr.setStartAfter(a); nr.setEndBefore(b);
+        sel.removeAllRanges(); sel.addRange(nr);
+      }
+    }catch(err){}
+    ref.current.querySelectorAll('[data-seg]').forEach(m=>{
+      const p = m.parentNode; m.remove();
+      if(p && p.nodeType === 1 && /^(P|DIV|LI|H1|H2|H3|H4|H5|H6|SPAN|B|I|U)$/.test(p.tagName) && !p.textContent && !p.querySelector('br,img')) p.appendChild(document.createElement('br'));
+    });
+    if(a && b && sel.rangeCount){                         // il cursore deve restare dentro un nodo di testo vero
+      const r = sel.getRangeAt(0);
+      if(r.collapsed && r.startContainer.nodeType === 1){
+        const figli = r.startContainer.childNodes, i = r.startOffset;
+        const t = (figli[i-1] && figli[i-1].nodeType === 3) ? [figli[i-1], figli[i-1].length] : (figli[i] && figli[i].nodeType === 3 ? [figli[i], 0] : null);
+        if(t){ const nr = document.createRange(); nr.setStart(t[0], t[1]); nr.collapse(true); sel.removeAllRanges(); sel.addRange(nr); }
+      }
+    }
   };
 
   /* il contenitore di righe in cui sta il cursore: il foglio, un gruppo o una cella */
@@ -1558,9 +1623,8 @@ function RichText({value, onChange, placeholder, docKey}){
     ref.current.focus();
     // elenchi e titoli valgono solo per la riga del cursore, non per quelle scritte sopra
     const eBlocco = /^(insertUnorderedList|insertOrderedList|formatBlock)$/.test(c);
-    if(eBlocco) perRigheProprie();
-    document.execCommand(c,false,v||null);
-    if(eBlocco) riordinaBlocchi();
+    if(eBlocco){ perRigheProprie(); bloccoTenendoCursore(c, v); }
+    else document.execCommand(c,false,v||null);
     emit();
     if(c === 'insertOrderedList') setTimeout(()=>proponiNumerazione(), 0);
   };
@@ -2299,8 +2363,7 @@ function RichText({value, onChange, placeholder, docKey}){
     }
     if(!lista){
       perRigheProprie();
-      document.execCommand('insertUnorderedList');
-      riordinaBlocchi();
+      bloccoTenendoCursore('insertUnorderedList');
       lista = listaCorrente();
     }
     if(!lista){ alert('Non sono riuscito a creare l\'elenco: metti il cursore su una riga di testo.'); return; }
@@ -2488,8 +2551,7 @@ function RichText({value, onChange, placeholder, docKey}){
     r.collapse(true);
     sel.removeAllRanges(); sel.addRange(r);
     perRigheProprie();                     // l'elenco vale solo per questa riga
-    document.execCommand(puntato ? 'insertUnorderedList' : 'insertOrderedList');
-    riordinaBlocchi();
+    bloccoTenendoCursore(puntato ? 'insertUnorderedList' : 'insertOrderedList');
     emit();
     if(!puntato) setTimeout(proponiNumerazione, 0);
     return true;
