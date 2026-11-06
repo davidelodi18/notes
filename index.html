@@ -1340,6 +1340,46 @@ function RichText({value, onChange, placeholder, docKey}){
     return cambiato;
   };
   const rigaVuota = (el) => !el.textContent.replace(/[\s ​]/g,'') && !el.querySelector('img,table,figure');
+  /* Invio sul titolo di un gruppo: niente titolo nuovo (il browser copiava il titolo e
+     ne nasceva un altro "raggruppamento"). Gruppo chiuso: si va a capo sotto il gruppo, fuori.
+     Gruppo aperto: si va alla prima riga del contenuto. A inizio titolo: riga nuova sopra il gruppo. */
+  const invioSulTitolo = (e) => {
+    if(e.key !== 'Enter' || e.shiftKey) return false;
+    const sel = window.getSelection();
+    if(!sel || !sel.rangeCount) return false;
+    let n = sel.anchorNode; if(n && n.nodeType === 3) n = n.parentElement;
+    if(!n || !ref.current.contains(n)) return false;
+    const tit = n.closest('.grp-t');
+    if(!tit || !ref.current.contains(tit)) return false;
+    const grp = tit.parentElement;
+    if(!grp || !grp.classList.contains('grp')) return false;
+    e.preventDefault();
+    if(!sel.isCollapsed){ try{ sel.collapseToEnd(); }catch(err){} }
+    const r0 = sel.getRangeAt(0);
+    const prima = document.createRange(); prima.setStart(tit, 0); prima.setEnd(r0.startContainer, r0.startOffset);
+    const aInizio = !prima.toString().replace(/[\s\u00a0\u200b]/g,'') && tit.textContent.replace(/[\s\u00a0\u200b]/g,'');
+    const nuovaRiga = () => { const p = document.createElement('p'); p.appendChild(document.createElement('br')); return p; };
+    let dove;
+    if(aInizio){
+      grp.parentNode.insertBefore(nuovaRiga(), grp);      // il titolo scende di una riga, il cursore resta lì
+      emit(true);
+      return true;
+    }
+    if(grp.classList.contains('chiuso')){
+      dove = nuovaRiga(); grp.parentNode.insertBefore(dove, grp.nextSibling);   // riga nuova: lo stacco fra i gruppi resta
+    } else {
+      let cnt = Array.from(grp.children).find(x=>x.classList.contains('grp-c'));
+      if(!cnt){ cnt = document.createElement('div'); cnt.className = 'grp-c'; grp.appendChild(cnt); }
+      const primo = cnt.firstElementChild;
+      if(primo && primo.tagName === 'P' && rigaVuota(primo)) dove = primo;
+      else { dove = nuovaRiga(); cnt.insertBefore(dove, cnt.firstChild); }
+    }
+    const r = document.createRange(); r.setStart(dove, 0); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+    try{ dove.scrollIntoView({block:'nearest'}); }catch(err){}
+    emit(true);
+    return true;
+  };
   const esciDalGruppo = (e) => {
     if(e.key !== 'Enter' || e.shiftKey) return false;
     const sel = window.getSelection();
@@ -4548,6 +4588,7 @@ function RichText({value, onChange, placeholder, docKey}){
           if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); ripeti(); return; }
           // la modalità celle vale solo dentro una tabella: fuori, le scorciatoie del testo restano attive
           if(modo === 'sel' && attivaRef.current && attivaRef.current.isConnected) return;
+          if(invioSulTitolo(e)) return;
           if(esciDalGruppo(e)) return;
           if(rientroElenco(e)) return;
           if(navigaTabella(e)) return;
