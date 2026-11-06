@@ -524,6 +524,10 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .st-pag .st-u{cursor:pointer}
 .st-pag .st-u:hover{outline:1px dashed #9cc3ae;outline-offset:2px}
 .st-calcolo{color:var(--muted);padding:40px}
+.st-sp{display:flex;gap:4px;align-items:center;flex-wrap:wrap;width:100%;margin-top:2px}
+.st-mm{font-size:11.5px;color:var(--accent);flex:none}
+.st-pagine{touch-action:pan-y}
+.st-pag .st-u{user-select:none;-webkit-user-select:none}
 @media (max-width:760px){
   .st-corpo{flex-direction:column}
   .st-lista{width:auto;max-height:40vh;border-right:0;border-bottom:1px solid var(--line)}
@@ -962,9 +966,15 @@ function applicaStampa(html, st, segna){
   if(!st && !segna) return html;
   const s = st || {};
   const pb = new Set(s.pb || []), ins = new Set(s.insieme || []), via = new Set(s.via || []);
+  const spazio = {}; (s.spazio || []).forEach(([k, mm])=>{ spazio[k] = mm; });   // lista di coppie: le chiavi hanno punti e simboli
   return ordinaUnita(unitaStampa(html), s).filter(u=>!via.has(u.k)).map((u, i)=>{
     const cl = ['st-u']; if(pb.has(u.k) && i > 0) cl.push('st-pb'); if(ins.has(u.k)) cl.push('st-ins');
-    const stile = cl.includes('st-pb') ? ' style="page-break-before:always;break-before:page"' : '';
+    // spazio in più (o in meno) sopra il blocco, in millimetri: lo sposta più giù o più su nel foglio
+    const mm = spazio[u.k] || 0;
+    let css = cl.includes('st-pb') ? 'page-break-before:always;break-before:page;' : '';
+    if(mm > 0) css += `padding-top:${mm}mm;`;
+    if(mm < 0) css += `margin-top:${mm}mm;`;
+    const stile = css ? ` style="${css}"` : '';
     return `<div class="${cl.join(' ')}"${segna ? ` data-k="${u.k.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"` : ''}${stile}>${u.html}</div>`;
   }).join('');
 }
@@ -4996,7 +5006,7 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
   const o = fmt || FORMATO_DEF;
   const base = useMemo(()=>docToHtml(doc, sezione), [doc.id]);         // il contenuto di quando si è aperta
   const unita = useMemo(()=>unitaStampa(base), [base]);
-  const iniziale = () => { const x = doc.stampa || {}; return { ordine: ordinaUnita(unita, x).map(u=>u.k), pb: x.pb || [], insieme: x.insieme || [], via: x.via || [] }; };
+  const iniziale = () => { const x = doc.stampa || {}; return { ordine: ordinaUnita(unita, x).map(u=>u.k), pb: x.pb || [], insieme: x.insieme || [], via: x.via || [], spazio: x.spazio || [] }; };
   const [st, setSt] = useState(iniziale);
   const [sel, setSel] = useState(null);
   const [pagine, setPagine] = useState(null);
@@ -5058,12 +5068,44 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
     setTrascina(null);
   };
   const originale = unita.map(u=>u.k);
-  const toccato = st.pb.length || st.insieme.length || st.via.length || st.ordine.join('\n') !== originale.join('\n');
+  const toccato = st.pb.length || st.insieme.length || st.via.length || st.spazio.length || st.ordine.join('\n') !== originale.join('\n');
   const daSalvare = () => toccato ? st : null;
   const salva = () => { onSave(daSalvare()); };
 
+  const spazioDi = (k) => { const c = (st.spazio || []).find(x=>x[0] === k); return c ? c[1] : 0; };
+  const metiSpazio = (k, mm) => setSt(p=>{
+    const v = Math.max(-60, Math.min(250, Math.round(mm)));
+    const resto = (p.spazio || []).filter(x=>x[0] !== k);
+    return { ...p, spazio: v ? [...resto, [k, v]] : resto };
+  });
+  // trascinando un blocco nell'anteprima lo sposto più su o più giù nel foglio
+  const tira = useRef(null);
+  const giuSuPagina = (e) => {
+    if(e.button !== undefined && e.button !== 0) return;
+    const u = e.target.closest('.st-pag [data-k]');
+    if(!u) return;
+    tira.current = { k: u.getAttribute('data-k'), y0: e.clientY, base: spazioDi(u.getAttribute('data-k')), mosso: false };
+  };
+  const muoviPagina = (e) => {
+    const t = tira.current; if(!t) return;
+    const dy = (e.clientY - t.y0) / scala;
+    if(!t.mosso && Math.abs(dy) < 4) return;
+    t.mosso = true; e.preventDefault();
+    t.mm = t.base + dy / pxMm;
+    pagRef.current.querySelectorAll(`.st-pag [data-k="${CSS.escape(t.k)}"]`).forEach(el=>{ el.style.transform = `translateY(${dy}px)`; el.style.opacity = '.85'; });
+  };
+  const suPagina = () => {
+    const t = tira.current; tira.current = null;
+    if(!t || !t.mosso) return;
+    pagRef.current.querySelectorAll(`.st-pag [data-k="${CSS.escape(t.k)}"]`).forEach(el=>{ el.style.transform = ''; el.style.opacity = ''; });
+    setSel(t.k); metiSpazio(t.k, t.mm);
+    tira.current = { appenaMosso: true };
+    setTimeout(()=>{ if(tira.current && tira.current.appenaMosso) tira.current = null; }, 0);
+  };
+
   // clic su un blocco dell'anteprima: lo seleziono nella lista
   const cliccaPagina = (e) => {
+    if(tira.current && tira.current.appenaMosso){ tira.current = null; return; }
     const u = e.target.closest('[data-k]');
     if(!u) return;
     const k = u.getAttribute('data-k');
@@ -5096,7 +5138,7 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
         <h3>Anteprima di stampa</h3>
         <span className="st-info">{pagine ? `${n} ${n === 1 ? 'pagina' : 'pagine'} A4` : 'calcolo…'} · le modifiche valgono solo per stampa e PDF</span>
         <span className="spacer" style={{flex:1}}></span>
-        <button className="btn sm" disabled={!toccato} onClick={()=>{ setSt({ordine: originale, pb:[], insieme:[], via:[]}); setSel(null); }}
+        <button className="btn sm" disabled={!toccato} onClick={()=>{ setSt({ordine: originale, pb:[], insieme:[], via:[], spazio:[]}); setSel(null); }}
           title="Torna all'ordine del documento, senza salti pagina">Ripristina</button>
         <button className="btn sm" onClick={()=>esporta('stampa')} title="Apre la finestra di stampa del browser">Stampa</button>
         <button className="btn sm" disabled={!!busy} onClick={()=>esporta('pdf')}>{busy || 'PDF'}</button>
@@ -5106,7 +5148,8 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
       <div className="st-corpo">
         <div className="st-lista" ref={listaRef}>
           <div className="st-aiuto">Sposta i blocchi con le frecce (o trascinandoli), manda un blocco a <b>pagina nuova</b>,
-            tienilo <b>tutto insieme</b> sulla stessa pagina o <b>escludilo</b> dalla stampa. Il documento non cambia.</div>
+            tienilo <b>tutto insieme</b> sulla stessa pagina o <b>escludilo</b> dalla stampa. Per spostarlo più su o più giù
+            nel foglio <b>trascinalo</b> nell'anteprima, oppure usa ↥ / ↧. Il documento non cambia.</div>
           {lista.map((u, i)=>{
             const on = sel === u.k;
             return (
@@ -5117,6 +5160,7 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
                   onClick={()=>setSel(on ? null : u.k)}>
                   <span className="st-tipo">{u.tipo}</span>
                   <span className="st-nome" title={u.nome}>{u.nome}</span>
+                  {!!spazioDi(u.k) && <span className="st-mm">{(spazioDi(u.k) > 0 ? '+' : '') + spazioDi(u.k)} mm</span>}
                 </div>
                 {on && (
                   <div className="st-az">
@@ -5125,13 +5169,20 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
                     <button className={ha('pb', u.k) ? 'on' : ''} disabled={i === 0} onClick={()=>alterna('pb', u.k)}>Pagina nuova</button>
                     <button className={ha('insieme', u.k) ? 'on' : ''} onClick={()=>alterna('insieme', u.k)} title="Non spezzarlo fra due pagine">Tutto insieme</button>
                     <button className={ha('via', u.k) ? 'on' : ''} onClick={()=>alterna('via', u.k)}>Escludi</button>
+                    <span className="st-sp">
+                      <button onClick={()=>metiSpazio(u.k, spazioDi(u.k) - 5)} title="Avvicina il blocco a quello sopra (5 mm)">↥ Più su</button>
+                      <button onClick={()=>metiSpazio(u.k, spazioDi(u.k) + 5)} title="Allontana il blocco da quello sopra (5 mm)">↧ Più giù</button>
+                      <span className="st-mm">{spazioDi(u.k) ? (spazioDi(u.k) > 0 ? '+' : '') + spazioDi(u.k) + ' mm' : 'posizione normale'}</span>
+                      {!!spazioDi(u.k) && <button onClick={()=>metiSpazio(u.k, 0)}>Azzera</button>}
+                    </span>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
-        <div className="st-pagine" ref={pagRef} onClick={cliccaPagina}>
+        <div className="st-pagine" ref={pagRef} onClick={cliccaPagina}
+          onPointerDown={giuSuPagina} onPointerMove={muoviPagina} onPointerUp={suPagina} onPointerLeave={suPagina}>
           {!pagine && <div className="st-calcolo">Preparo le pagine…</div>}
           {pagine && pagine.map(([a, b], i)=>(
             <div key={i} className="st-pag" style={{width: pagW * scala, height: pagH * scala}}>
