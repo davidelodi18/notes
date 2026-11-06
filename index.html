@@ -1991,6 +1991,11 @@ function RichText({value, onChange, placeholder, docKey}){
         const cand = Array.from(g.children).find(x=>!x.classList.contains('grp-c'));
         if(cand){ const nt = document.createElement('div'); nt.className = 'grp-t'; nt.innerHTML = cand.innerHTML; cand.replaceWith(nt); t = nt; cambiato = true; }
       }
+      // titoli vuoti in più (Invio sul titolo con la versione vecchia) e righe vuote sciolte nel gruppo: via
+      Array.from(g.children).forEach(x=>{
+        if(x === t || x.classList.contains('grp-c')) return;
+        if(!x.textContent.replace(/[\s\u00a0\u200b]/g,'') && !x.querySelector('img,table')){ x.remove(); cambiato = true; }
+      });
       // gruppo vuoto (niente titolo e niente contenuto): via
       const testo = (t ? t.textContent : '') + (cnt ? cnt.textContent : '');
       if(!testo.replace(/[\s ]/g,'') && !(cnt && cnt.querySelector('img,table'))){ g.remove(); cambiato = true; }
