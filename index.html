@@ -1354,6 +1354,8 @@ function Palette({colori, onPick, onClear, etichetta, evid, recenti, onCustom}){
   );
 }
 
+/* cronologie delle modifiche dei fogli lasciati (restano finché la pagina è aperta) */
+const STORIE_FOGLI = new Map();
 function RichText({value, onChange, placeholder, docKey}){
   const ref = useRef(null);
   /* ═══ a quale foglio appartiene quello che c'è nell'editor ═══
@@ -1396,16 +1398,37 @@ function RichText({value, onChange, placeholder, docKey}){
       if(a || b || c || d || f) emit(true);
     }catch(err){} }, 50);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
-    clearTimeout(storia.current.timer);        // fermo un eventuale salvataggio del documento precedente
-    storia.current = {stack:[value||''], i:0, bloccato:false, timer:null, doc:docKey};
+    /* la cronologia di ogni foglio resta da parte quando si cambia documento: rientrando si può
+       ancora tornare indietro (prima ripartiva da zero e una cancellazione fatta per sbaglio restava) */
+    const vecchia = storia.current;
+    clearTimeout(vecchia.timer);
+    if(vecchia.pendente){ try{ vecchia.pendente(); }catch(err){} }   // l'ultimo stato del foglio che lascio entra nella sua cronologia
+    if(vecchia.doc && vecchia.doc !== docKey && vecchia.stack.length){
+      STORIE_FOGLI.delete(vecchia.doc); STORIE_FOGLI.set(vecchia.doc, {stack: vecchia.stack, i: vecchia.i});
+      while(STORIE_FOGLI.size > 15) STORIE_FOGLI.delete(STORIE_FOGLI.keys().next().value);   // tengo i 15 fogli più recenti
+    }
+    const ora = value || '';
+    const tenuta = STORIE_FOGLI.get(docKey);
+    if(tenuta && tenuta.stack.length){
+      const stack = tenuta.stack.slice(0, tenuta.i + 1);
+      if(stack[stack.length - 1] !== ora) stack.push(ora);      // nel frattempo il foglio è cambiato (altro dispositivo, pulizia)
+      storia.current = {stack, i: stack.length - 1, bloccato:false, timer:null, doc:docKey};
+    } else storia.current = {stack:[ora], i:0, bloccato:false, timer:null, doc:docKey};
     setTimeout(()=>{
       const g = ref.current ? Array.from(ref.current.querySelectorAll('.grp')) : [];
       setTuttiChiusi(g.length > 0 && g.every(x=>x.classList.contains('chiuso')));
     }, 0);
-    setPuoAnnullare(false); setPuoRipetere(false);
+    setPuoAnnullare(storia.current.i > 0); setPuoRipetere(false);
     try{ document.execCommand('defaultParagraphSeparator', false, 'p'); }catch(err){}
     setTimeout(ricalcolaTutto, 0);
   }, [docKey]);
+  // se l'editor sparisce (si apre un documento di altro tipo) la cronologia del foglio resta da parte
+  useEffect(()=>()=>{
+    const st = storia.current;
+    clearTimeout(st.timer);
+    if(st.pendente){ try{ st.pendente(); }catch(err){} }
+    if(st.doc && st.stack.length){ STORIE_FOGLI.delete(st.doc); STORIE_FOGLI.set(st.doc, {stack: st.stack, i: st.i}); }
+  }, []);
   useEffect(()=>{ if(modo==='sel') applicaModo('sel'); });   // celle create dopo restano bloccate
   useEffect(()=>{
     if(!inTable) return;
@@ -4048,7 +4071,8 @@ function RichText({value, onChange, placeholder, docKey}){
       st.i = st.stack.length - 1;
       aggiornaFrecce();
     };
-    if(subito) salva(); else st.timer = setTimeout(salva, 450);
+    st.pendente = null;
+    if(subito) salva(); else { st.pendente = salva; st.timer = setTimeout(()=>{ st.pendente = null; salva(); }, 450); }
   };
   const applicaStato = (html) => {
     const st = storia.current;
@@ -5007,7 +5031,20 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
   const base = useMemo(()=>docToHtml(doc, sezione), [doc.id]);         // il contenuto di quando si è aperta
   const unita = useMemo(()=>unitaStampa(base), [base]);
   const iniziale = () => { const x = doc.stampa || {}; return { ordine: ordinaUnita(unita, x).map(u=>u.k), pb: x.pb || [], insieme: x.insieme || [], via: x.via || [], spazio: x.spazio || [] }; };
-  const [st, setSt] = useState(iniziale);
+  const [st, setStVero] = useState(iniziale);
+  /* cronologia dell'impaginazione: ogni modifica si può annullare e ripetere */
+  const stRef = useRef(st); stRef.current = st;
+  const passi = useRef([]), avanti = useRef([]);
+  const setSt = (f) => {
+    const p = stRef.current;
+    const n = typeof f === 'function' ? f(p) : f;
+    if(!n || n === p || JSON.stringify(n) === JSON.stringify(p)) return;
+    passi.current.push(p); if(passi.current.length > 100) passi.current.shift();
+    avanti.current = [];
+    stRef.current = n; setStVero(n);
+  };
+  const indietro = () => { if(!passi.current.length) return; avanti.current.push(stRef.current); const n = passi.current.pop(); stRef.current = n; setStVero(n); };
+  const avantiDi = () => { if(!avanti.current.length) return; passi.current.push(stRef.current); const n = avanti.current.pop(); stRef.current = n; setStVero(n); };
   const [sel, setSel] = useState(null);
   const [pagine, setPagine] = useState(null);
   const [contenuto, setContenuto] = useState('');
@@ -5049,7 +5086,14 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
     misura(); window.addEventListener('resize', misura);
     return ()=>window.removeEventListener('resize', misura);
   }, []);
-  useEffect(()=>{ const k = e => { if(e.key === 'Escape') onClose(); }; document.addEventListener('keydown', k); return ()=>document.removeEventListener('keydown', k); }, []);
+  useEffect(()=>{
+    const k = e => {
+      if(e.key === 'Escape') onClose();
+      if((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')){ e.preventDefault(); e.shiftKey ? avantiDi() : indietro(); }
+      if((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); avantiDi(); }
+    };
+    document.addEventListener('keydown', k); return ()=>document.removeEventListener('keydown', k);
+  }, []);
 
   const perK = useMemo(()=>{ const m = {}; unita.forEach(u=>m[u.k] = u); return m; }, [unita]);
   const lista = st.ordine.map(k=>perK[k]).filter(Boolean);
@@ -5138,6 +5182,8 @@ function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
         <h3>Anteprima di stampa</h3>
         <span className="st-info">{pagine ? `${n} ${n === 1 ? 'pagina' : 'pagine'} A4` : 'calcolo…'} · le modifiche valgono solo per stampa e PDF</span>
         <span className="spacer" style={{flex:1}}></span>
+        <button className="btn sm" disabled={!passi.current.length} onClick={indietro} title="Annulla l'ultima modifica (Ctrl/Cmd+Z)">↶ Indietro</button>
+        <button className="btn sm" disabled={!avanti.current.length} onClick={avantiDi} title="Rifai la modifica annullata (Ctrl/Cmd+Maiusc+Z)">Avanti ↷</button>
         <button className="btn sm" disabled={!toccato} onClick={()=>{ setSt({ordine: originale, pb:[], insieme:[], via:[], spazio:[]}); setSel(null); }}
           title="Torna all'ordine del documento, senza salti pagina">Ripristina</button>
         <button className="btn sm" onClick={()=>esporta('stampa')} title="Apre la finestra di stampa del browser">Stampa</button>
