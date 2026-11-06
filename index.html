@@ -498,6 +498,38 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .sw.on{border-color:var(--ink)}
 .modal-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 
+/* ═══ anteprima di stampa ═══ */
+.st-ov{position:fixed;inset:0;z-index:60;background:var(--shell);display:flex;flex-direction:column}
+.st-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--paper);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.st-bar h3{font-family:var(--serif);font-size:18px;margin:0;font-weight:600}
+.st-bar .st-info{color:var(--muted);font-size:13px}
+.st-corpo{flex:1;display:flex;min-height:0}
+.st-lista{width:340px;flex:none;overflow:auto;background:var(--paper);border-right:1px solid var(--line);padding:8px 0}
+.st-aiuto{font-size:12.5px;color:var(--muted);padding:4px 14px 10px;line-height:1.45}
+.st-riga{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 14px;border-left:3px solid transparent;cursor:pointer;font-size:13.5px}
+.st-riga:hover{background:var(--accent-soft)}
+.st-riga.sel{border-left-color:var(--accent);background:var(--accent-soft)}
+.st-riga.fuori .st-nome{text-decoration:line-through;color:var(--muted)}
+.st-riga.trasc{opacity:.45}
+.st-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-tipo{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;flex:none;width:52px}
+.st-salto{font-size:10.5px;color:var(--accent);padding:2px 14px 0 69px;letter-spacing:.04em}
+.st-az{display:flex;gap:4px;padding:2px 10px 8px 69px;flex-wrap:wrap}
+.st-az button{font-size:12px;padding:3px 7px;border:1px solid var(--line);background:var(--paper);border-radius:4px;cursor:pointer;color:var(--ink-soft)}
+.st-az button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.st-az button:disabled{opacity:.35;cursor:default}
+.st-pagine{flex:1;overflow:auto;padding:18px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.st-pag{flex:none;box-shadow:0 2px 10px rgba(23,33,29,.18);background:#fff;position:relative;overflow:hidden}
+.st-pag .st-num{position:absolute;right:10px;bottom:6px;font:11px Arial,sans-serif;color:#9aa6a0}
+.st-pag .st-u{cursor:pointer}
+.st-pag .st-u:hover{outline:1px dashed #9cc3ae;outline-offset:2px}
+.st-calcolo{color:var(--muted);padding:40px}
+@media (max-width:760px){
+  .st-corpo{flex-direction:column}
+  .st-lista{width:auto;max-height:40vh;border-right:0;border-bottom:1px solid var(--line)}
+  .st-pagine{padding:12px}
+}
+
 .login{max-width:340px;margin:14vh auto;background:var(--paper);padding:28px;border-radius:8px;border:1px solid var(--line)}
 .login h1{font-family:var(--serif);font-size:26px;margin:0 0 4px}
 .login p{margin:0 0 18px;color:var(--muted);font-size:13px}
@@ -823,6 +855,8 @@ blockquote{border-left:2px solid #2f6f4e;margin:7pt 0;padding-left:10pt;color:#4
 .grp-t{margin:0 0 4pt}
 .grp-c{margin:0;padding:0}
 .doc-sep{page-break-after:always}
+.st-pb{page-break-before:always;break-before:page}
+.st-ins{page-break-inside:avoid;break-inside:avoid}
 `;
 }
 
@@ -877,6 +911,134 @@ function pdfDomCss(o){
 .pdfdoc .grp-c > *:first-child{margin-top:0}
 .pdfdoc .doc-sep{page-break-after:always}
 `;
+}
+
+
+/* ═══════════ impaginazione per la stampa ═══════════
+   L'anteprima di stampa permette di cambiare l'ordine dei blocchi, mandarne uno a pagina nuova,
+   tenerlo tutto sulla stessa pagina o lasciarlo fuori. Tutto questo vale SOLO per la stampa e il PDF:
+   il documento resta com'è (le scelte stanno a parte, in doc.stampa). */
+const vuotoHtml = el => !el.textContent.replace(/[\s ​]/g,'') && !el.querySelector('img,table,figure,hr');
+function unitaStampa(html){
+  const box = document.createElement('div');
+  box.innerHTML = html || '';
+  // il testo del documento arriva chiuso in un <div> senza classe: lo apro, così ogni gruppo è un blocco
+  Array.from(box.children).forEach(el=>{
+    if(el.tagName === 'DIV' && !el.className && Array.from(el.children).length) el.replaceWith(...el.childNodes);
+  });
+  const unita = [];
+  const visti = {};
+  Array.from(box.childNodes).forEach(n=>{
+    if(n.nodeType === 3){ if(!n.textContent.trim()) return; const p = document.createElement('p'); p.textContent = n.textContent; n = p; }
+    if(n.nodeType !== 1) return;
+    if(vuotoHtml(n) && unita.length){ unita[unita.length-1].html += n.outerHTML; return; }   // le righe vuote vanno col blocco sopra
+    const grp = n.classList && n.classList.contains('grp');
+    const titEl = grp ? n.querySelector('.grp-t') : n;
+    let nome = (titEl ? titEl.textContent : n.textContent).replace(/\s+/g,' ').trim();
+    if(!nome) nome = n.querySelector('table') ? '(tabella)' : n.querySelector('img') ? '(immagine)' : '(riga vuota)';
+    const firma = n.tagName + ':' + nome.slice(0, 60);
+    visti[firma] = (visti[firma] || 0) + 1;
+    unita.push({ k: firma + (visti[firma] > 1 ? '#' + visti[firma] : ''), nome: nome.length > 70 ? nome.slice(0, 68) + '…' : nome,
+      tipo: grp ? 'gruppo' : /^H[1-4]$/.test(n.tagName) ? 'titolo' : n.tagName === 'TABLE' ? 'tabella' : (n.tagName === 'UL' || n.tagName === 'OL') ? 'elenco' : 'testo',
+      html: n.outerHTML });
+  });
+  return unita;
+}
+/* l'ordine salvato, con i blocchi nuovi (scritti dopo) rimessi vicino a dove stanno nel documento */
+function ordinaUnita(unita, st){
+  if(!st || !Array.isArray(st.ordine) || !st.ordine.length) return unita.slice();
+  const perK = {}; unita.forEach(u=>perK[u.k] = u);
+  const out = st.ordine.filter(k=>perK[k]).map(k=>perK[k]);
+  const messi = new Set(out.map(u=>u.k));
+  unita.forEach((u, i)=>{
+    if(messi.has(u.k)) return;
+    let j = i - 1; while(j >= 0 && !messi.has(unita[j].k)) j--;
+    const dopo = j >= 0 ? out.findIndex(x=>x.k === unita[j].k) + 1 : 0;
+    out.splice(dopo, 0, u); messi.add(u.k);
+  });
+  return out;
+}
+function applicaStampa(html, st, segna){
+  if(!st && !segna) return html;
+  const s = st || {};
+  const pb = new Set(s.pb || []), ins = new Set(s.insieme || []), via = new Set(s.via || []);
+  return ordinaUnita(unitaStampa(html), s).filter(u=>!via.has(u.k)).map((u, i)=>{
+    const cl = ['st-u']; if(pb.has(u.k) && i > 0) cl.push('st-pb'); if(ins.has(u.k)) cl.push('st-ins');
+    const stile = cl.includes('st-pb') ? ' style="page-break-before:always;break-before:page"' : '';
+    return `<div class="${cl.join(' ')}"${segna ? ` data-k="${u.k.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"` : ''}${stile}>${u.html}</div>`;
+  }).join('');
+}
+/* tabelle larghe: più colonne ci sono, più si stringono per stare nella pagina */
+function preparaPerPdf(inner){
+  try{
+    const box = document.createElement('div');
+    box.innerHTML = inner;
+    box.querySelectorAll('table').forEach(t=>{
+      let max = 0;
+      t.querySelectorAll('tr').forEach(tr=>{
+        let n = 0;
+        Array.from(tr.children).forEach(td=>{ n += (td.colSpan || 1); });
+        if(n > max) max = n;
+      });
+      t.removeAttribute('width');
+      t.style.removeProperty('width');
+      t.querySelectorAll('td,th').forEach(td=>td.style.removeProperty('width'));
+      if(max >= 10) t.classList.add('col10');
+      else if(max >= 8) t.classList.add('col8');
+      else if(max >= 6) t.classList.add('col6');
+    });
+    return box.innerHTML;
+  }catch(err){ return inner; }
+}
+/* dove tagliare le pagine: tra due righe, mai a metà riga, foto o riga di tabella;
+   i salti pagina scelti nell'anteprima e i blocchi "tutti insieme" vengono rispettati */
+function calcolaTagli(host, altPx){
+  const top0 = host.getBoundingClientRect().top;
+  const totale = Math.ceil(host.scrollHeight);
+  const pezzi = [];
+  const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+  let t; const rg = document.createRange();
+  while((t = w.nextNode())){
+    if(!t.textContent.trim()) continue;
+    rg.selectNodeContents(t);
+    Array.from(rg.getClientRects()).forEach(r=>{ if(r.height > 0) pezzi.push([r.top - top0, r.bottom - top0]); });
+  }
+  host.querySelectorAll('img, tr, figure, hr').forEach(el=>{
+    const r = el.getBoundingClientRect();
+    if(r.height > 0 && r.height < altPx * 0.9) pezzi.push([r.top - top0, r.bottom - top0]);
+  });
+  const titoli = Array.from(host.querySelectorAll('h1,h2,h3,h4,.grp-t')).map(h=>{ const r = h.getBoundingClientRect(); return [r.top - top0, r.bottom - top0]; });
+  const salti = Array.from(host.querySelectorAll('.st-pb')).map(el=>Math.floor(el.getBoundingClientRect().top - top0)).filter(y=>y > 2).sort((a,b)=>a-b);
+  const interi = Array.from(host.querySelectorAll('.st-ins')).map(el=>{ const r = el.getBoundingClientRect(); return [Math.floor(r.top - top0), Math.ceil(r.bottom - top0)]; })
+    .filter(([a,b])=>b - a < altPx);
+  const tagliaQui = (y) => !pezzi.some(([a, b]) => a < y - 0.5 && b > y + 0.5);
+  // punti dove si può tagliare: subito sotto o subito sopra ogni pezzo (prima c'era +1 e il taglio cadeva sempre dentro la riga dopo)
+  const candidati = Array.from(new Set([].concat(...pezzi.map(p=>[Math.ceil(p[1]), Math.floor(p[0])])))).sort((a,b)=>a-b);
+  const tagli = [];
+  let da = 0;
+  while(da < totale - 2){
+    let fino = da + altPx;
+    const salto = salti.find(y=>y > da + 2 && y <= fino);
+    if(salto !== undefined){ tagli.push([da, salto]); da = salto; continue; }
+    if(fino >= totale){ tagli.push([da, totale]); break; }
+    let scelto = null;
+    for(let i = candidati.length - 1; i >= 0; i--){
+      const c = candidati[i];
+      if(c > fino) continue;
+      if(c <= da + altPx * 0.5) break;
+      if(tagliaQui(c)){ scelto = c; break; }
+    }
+    if(scelto === null) scelto = fino;
+    // un titolo rimasto in fondo alla pagina (da solo o con una riga sola sotto) passa alla pagina dopo
+    const orfano = titoli.find(([a, b]) => b <= scelto + 1 && b > scelto - 70 && a > da + altPx * 0.4);
+    if(orfano) scelto = Math.floor(orfano[0] - 2);
+    // un blocco da tenere insieme che verrebbe tagliato passa tutto alla pagina dopo
+    const intero = interi.find(([a, b]) => a < scelto - 1 && b > scelto + 1 && a > da + 2);
+    if(intero) scelto = intero[0];
+    tagli.push([da, scelto]);
+    da = scelto;
+  }
+  return tagli;
 }
 
 function loadScript(src){
@@ -940,46 +1102,7 @@ async function pdfHd(nome, contenuto, o){
       new Promise(r=>{ im.onload = im.onerror = r; setTimeout(r, 4000); })));
     try{ if(document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, new Promise(r=>setTimeout(r, 2500))]); }catch(e){}
 
-    const base = host.getBoundingClientRect();
-    const top0 = base.top;
-    const totale = Math.ceil(host.scrollHeight);
-    // ciò che non va tagliato: ogni riga di testo, le foto, le righe delle tabelle
-    const pezzi = [];
-    const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
-    let t; const rg = document.createRange();
-    while((t = w.nextNode())){
-      if(!t.textContent.trim()) continue;
-      rg.selectNodeContents(t);
-      Array.from(rg.getClientRects()).forEach(r=>{ if(r.height > 0) pezzi.push([r.top - top0, r.bottom - top0]); });
-    }
-    host.querySelectorAll('img, tr, figure, hr').forEach(el=>{
-      const r = el.getBoundingClientRect();
-      if(r.height > 0 && r.height < altPx * 0.9) pezzi.push([r.top - top0, r.bottom - top0]);
-    });
-    const titoli = Array.from(host.querySelectorAll('h1,h2,h3,h4')).map(h=>{ const r = h.getBoundingClientRect(); return [r.top - top0, r.bottom - top0]; });
-    const tagliaQui = (y) => !pezzi.some(([a, b]) => a < y - 0.5 && b > y + 0.5);
-    const candidati = Array.from(new Set(pezzi.map(p=>Math.ceil(p[1] + 1)))).sort((a,b)=>a-b);
-
-    const tagli = [];
-    let da = 0;
-    while(da < totale - 2){
-      let fino = da + altPx;
-      if(fino >= totale){ tagli.push([da, totale]); break; }
-      // l'ultimo punto buono prima del fondo pagina (almeno a metà pagina)
-      let scelto = null;
-      for(let i = candidati.length - 1; i >= 0; i--){
-        const c = candidati[i];
-        if(c > fino) continue;
-        if(c <= da + altPx * 0.5) break;
-        if(tagliaQui(c)){ scelto = c; break; }
-      }
-      if(scelto === null) scelto = fino;                    // nessun punto buono: taglio dritto
-      // un titolo rimasto in fondo alla pagina passa alla pagina dopo
-      const orfano = titoli.find(([a, b]) => b <= scelto + 1 && b > scelto - 40 && a > da + altPx * 0.4);
-      if(orfano) scelto = Math.floor(orfano[0] - 2);
-      tagli.push([da, scelto]);
-      da = scelto;
-    }
+    const tagli = calcolaTagli(host, altPx);
 
     const scala = PDF_DPI / 96;
     const { jsPDF } = window.jspdf;
@@ -1017,27 +1140,7 @@ async function exportPdf(title, inner, filename, fmt){
     if(!st){ st = document.createElement('style'); st.id = 'pdf-style'; document.head.appendChild(st); }
     st.textContent = pdfDomCss(o);
 
-    // conto le colonne di ogni tabella: quelle larghe vanno rimpicciolite per stare nella pagina
-    let contenuto = inner;
-    try{
-      const box = document.createElement('div');
-      box.innerHTML = inner;
-      box.querySelectorAll('table').forEach(t=>{
-        let max = 0;
-        t.querySelectorAll('tr').forEach(tr=>{
-          let n = 0;
-          Array.from(tr.children).forEach(td=>{ n += (td.colSpan || 1); });
-          if(n > max) max = n;
-        });
-        t.removeAttribute('width');
-        t.style.removeProperty('width');
-        t.querySelectorAll('td,th').forEach(td=>td.style.removeProperty('width'));
-        if(max >= 10) t.classList.add('col10');
-        else if(max >= 8) t.classList.add('col8');
-        else if(max >= 6) t.classList.add('col6');
-      });
-      contenuto = box.innerHTML;
-    }catch(err){}
+    const contenuto = preparaPerPdf(inner);
 
     await pdfHd(nome, contenuto, o);
     return true;
@@ -4887,6 +4990,165 @@ function NewDocModal({onCreate, onClose}){
 }
 
 /* ═══════════ formato degli export ═══════════ */
+
+/* ═══════════ anteprima di stampa ═══════════ */
+function AnteprimaStampa({doc, sezione, fmt, onSave, onClose}){
+  const o = fmt || FORMATO_DEF;
+  const base = useMemo(()=>docToHtml(doc, sezione), [doc.id]);         // il contenuto di quando si è aperta
+  const unita = useMemo(()=>unitaStampa(base), [base]);
+  const iniziale = () => { const x = doc.stampa || {}; return { ordine: ordinaUnita(unita, x).map(u=>u.k), pb: x.pb || [], insieme: x.insieme || [], via: x.via || [] }; };
+  const [st, setSt] = useState(iniziale);
+  const [sel, setSel] = useState(null);
+  const [pagine, setPagine] = useState(null);
+  const [contenuto, setContenuto] = useState('');
+  const [scala, setScala] = useState(0.7);
+  const [busy, setBusy] = useState('');
+  const pagRef = useRef(null), listaRef = useRef(null);
+
+  const mm = MARGINI[o.margini] || MARGINI.normali;
+  const pxMm = 96 / 25.4;
+  const pagW = Math.round(210 * pxMm), pagH = Math.round(297 * pxMm);
+  const mT = mm[0] * pxMm, mL = mm[1] * pxMm;
+  const largPx = Math.round((210 - 2 * mm[1]) * pxMm), altPx = Math.floor((297 - 2 * mm[0] - 2) * pxMm);
+
+  // ricalcolo le pagine a ogni cambio, con le stesse regole del PDF
+  useEffect(()=>{
+    let vivo = true;
+    let stile = document.getElementById('pdf-style');
+    if(!stile){ stile = document.createElement('style'); stile.id = 'pdf-style'; document.head.appendChild(stile); }
+    stile.textContent = pdfDomCss(o);
+    const html = preparaPerPdf(applicaStampa(base, st, true));
+    const host = document.createElement('div');
+    host.style.cssText = `position:absolute;left:-30000px;top:0;width:${largPx}px;background:#fff`;
+    host.innerHTML = `<div class="pdfdoc">${html}</div>`;
+    document.body.appendChild(host);
+    (async()=>{
+      try{
+        await Promise.all(Array.from(host.querySelectorAll('img')).map(im => im.complete ? 0 : new Promise(r=>{ im.onload = im.onerror = r; setTimeout(r, 3000); })));
+        try{ if(document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, new Promise(r=>setTimeout(r, 1500))]); }catch(e){}
+        const t = calcolaTagli(host, altPx);
+        if(vivo){ setContenuto(html); setPagine(t); }
+      } finally { host.remove(); }
+    })();
+    return ()=>{ vivo = false; };
+  }, [st, base, o.font, o.size, o.margini]);
+
+  // le pagine si adattano alla larghezza dello schermo
+  useEffect(()=>{
+    const misura = () => { const w = pagRef.current ? pagRef.current.clientWidth - 36 : 600; setScala(Math.max(0.3, Math.min(1, w / pagW))); };
+    misura(); window.addEventListener('resize', misura);
+    return ()=>window.removeEventListener('resize', misura);
+  }, []);
+  useEffect(()=>{ const k = e => { if(e.key === 'Escape') onClose(); }; document.addEventListener('keydown', k); return ()=>document.removeEventListener('keydown', k); }, []);
+
+  const perK = useMemo(()=>{ const m = {}; unita.forEach(u=>m[u.k] = u); return m; }, [unita]);
+  const lista = st.ordine.map(k=>perK[k]).filter(Boolean);
+  const ha = (campo, k) => (st[campo] || []).includes(k);
+  const alterna = (campo, k) => setSt(p=>({ ...p, [campo]: ha(campo, k) ? p[campo].filter(x=>x !== k) : [...p[campo], k] }));
+  const sposta = (k, d) => setSt(p=>{
+    const o2 = p.ordine.slice(); const i = o2.indexOf(k), j = i + d;
+    if(i < 0 || j < 0 || j >= o2.length) return p;
+    [o2[i], o2[j]] = [o2[j], o2[i]];
+    return { ...p, ordine: o2 };
+  });
+  const [trascina, setTrascina] = useState(null);
+  const lascia = (k) => {
+    if(!trascina || trascina === k) return setTrascina(null);
+    setSt(p=>{ const o2 = p.ordine.filter(x=>x !== trascina); o2.splice(o2.indexOf(k), 0, trascina); return { ...p, ordine: o2 }; });
+    setTrascina(null);
+  };
+  const originale = unita.map(u=>u.k);
+  const toccato = st.pb.length || st.insieme.length || st.via.length || st.ordine.join('\n') !== originale.join('\n');
+  const daSalvare = () => toccato ? st : null;
+  const salva = () => { onSave(daSalvare()); };
+
+  // clic su un blocco dell'anteprima: lo seleziono nella lista
+  const cliccaPagina = (e) => {
+    const u = e.target.closest('[data-k]');
+    if(!u) return;
+    const k = u.getAttribute('data-k');
+    setSel(k);
+    setTimeout(()=>{ const r = listaRef.current && listaRef.current.querySelector(`[data-riga="${CSS.escape(k)}"]`); if(r) r.scrollIntoView({block:'nearest'}); }, 0);
+  };
+  useEffect(()=>{
+    if(!sel || !pagRef.current) return;
+    const el = pagRef.current.querySelector(`.st-pag [data-k="${CSS.escape(sel)}"]`);
+    if(el){ const box = pagRef.current.getBoundingClientRect(), r = el.getBoundingClientRect();
+      if(r.top < box.top || r.top > box.bottom - 60) el.scrollIntoView({block:'center'}); }
+  }, [sel, pagine]);
+
+  const nomeFile = (doc.titolo||'documento') + (doc.data ? ' ' + doc.data : '');
+  const esporta = async (modo) => {
+    onSave(daSalvare(), true);
+    const inner = applicaStampa(base, st);
+    if(modo === 'stampa'){ printFallback(doc.titolo||'Documento', inner, o); return; }
+    setBusy('PDF…');
+    try{ await exportPdf(doc.titolo||'Documento', inner, nomeFile, {...o, pdf:'alta'}); } finally { setBusy(''); }
+  };
+
+  const evidenzia = sel ? `.st-pag [data-k="${CSS.escape(sel)}"]{outline:2px solid #2f6f4e !important;outline-offset:-2px;box-shadow:inset 0 0 0 9999px rgba(47,111,78,.07)}` : '';
+  const n = pagine ? pagine.length : 0;
+
+  return (
+    <div className="st-ov">
+      <style>{evidenzia}</style>
+      <div className="st-bar">
+        <h3>Anteprima di stampa</h3>
+        <span className="st-info">{pagine ? `${n} ${n === 1 ? 'pagina' : 'pagine'} A4` : 'calcolo…'} · le modifiche valgono solo per stampa e PDF</span>
+        <span className="spacer" style={{flex:1}}></span>
+        <button className="btn sm" disabled={!toccato} onClick={()=>{ setSt({ordine: originale, pb:[], insieme:[], via:[]}); setSel(null); }}
+          title="Torna all'ordine del documento, senza salti pagina">Ripristina</button>
+        <button className="btn sm" onClick={()=>esporta('stampa')} title="Apre la finestra di stampa del browser">Stampa</button>
+        <button className="btn sm" disabled={!!busy} onClick={()=>esporta('pdf')}>{busy || 'PDF'}</button>
+        <button className="btn sm" onClick={onClose}>Chiudi</button>
+        <button className="btn sm primary" onClick={salva}>Salva impaginazione</button>
+      </div>
+      <div className="st-corpo">
+        <div className="st-lista" ref={listaRef}>
+          <div className="st-aiuto">Sposta i blocchi con le frecce (o trascinandoli), manda un blocco a <b>pagina nuova</b>,
+            tienilo <b>tutto insieme</b> sulla stessa pagina o <b>escludilo</b> dalla stampa. Il documento non cambia.</div>
+          {lista.map((u, i)=>{
+            const on = sel === u.k;
+            return (
+              <div key={u.k}>
+                {ha('pb', u.k) && i > 0 && <div className="st-salto">— pagina nuova —</div>}
+                <div data-riga={u.k} className={'st-riga' + (on ? ' sel' : '') + (ha('via', u.k) ? ' fuori' : '') + (trascina === u.k ? ' trasc' : '')}
+                  draggable onDragStart={()=>setTrascina(u.k)} onDragOver={e=>e.preventDefault()} onDrop={()=>lascia(u.k)} onDragEnd={()=>setTrascina(null)}
+                  onClick={()=>setSel(on ? null : u.k)}>
+                  <span className="st-tipo">{u.tipo}</span>
+                  <span className="st-nome" title={u.nome}>{u.nome}</span>
+                </div>
+                {on && (
+                  <div className="st-az">
+                    <button disabled={i === 0} onClick={()=>sposta(u.k, -1)} title="Sposta su">↑ Su</button>
+                    <button disabled={i === lista.length - 1} onClick={()=>sposta(u.k, 1)} title="Sposta giù">↓ Giù</button>
+                    <button className={ha('pb', u.k) ? 'on' : ''} disabled={i === 0} onClick={()=>alterna('pb', u.k)}>Pagina nuova</button>
+                    <button className={ha('insieme', u.k) ? 'on' : ''} onClick={()=>alterna('insieme', u.k)} title="Non spezzarlo fra due pagine">Tutto insieme</button>
+                    <button className={ha('via', u.k) ? 'on' : ''} onClick={()=>alterna('via', u.k)}>Escludi</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="st-pagine" ref={pagRef} onClick={cliccaPagina}>
+          {!pagine && <div className="st-calcolo">Preparo le pagine…</div>}
+          {pagine && pagine.map(([a, b], i)=>(
+            <div key={i} className="st-pag" style={{width: pagW * scala, height: pagH * scala}}>
+              <div style={{width: pagW, height: pagH, transform: `scale(${scala})`, transformOrigin: '0 0', position: 'relative'}}>
+                <div style={{position:'absolute', left: mL, top: mT, width: largPx, height: Math.max(1, b - a), overflow:'hidden'}}>
+                  <div className="pdfdoc" style={{position:'relative', top: -a}} dangerouslySetInnerHTML={{__html: contenuto}}/>
+                </div>
+                <div className="st-num">{i + 1} / {n}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FormatoModal({fmt, onSave, onClose}){
   const [f,setF] = useState(fmt.font);
   const [sz,setSz] = useState(fmt.size);
@@ -5593,6 +5855,7 @@ function App(){
   const [fmt,setFmt] = useState(FORMATO_DEF);
   const [modalFmt,setModalFmt] = useState(false);
   const [modalStorico,setModalStorico] = useState(false);
+  const [anteprima,setAnteprima] = useState(false);
 
   useEffect(()=>{
     if(HAS_FB){
@@ -5959,7 +6222,7 @@ function App(){
     const lista = docList;
     if(!lista.length){ alert('Non c\'è niente da esportare.'); return; }
     const titolo = q.trim()? `Ricerca "${q}"` : (sezCorrente? sezCorrente.nome : 'Quaderno');
-    const inner = `<h1>${titolo}</h1>` + lista.map(d=>'<div class="doc-sep">'+docToHtml(d, sezioni[d.sezioneId])+'</div>').join('');
+    const inner = `<h1>${titolo}</h1>` + lista.map(d=>'<div class="doc-sep">'+applicaStampa(docToHtml(d, sezioni[d.sezioneId]), d.stampa)+'</div>').join('');
     if(formato==='word'){ exportWord(titolo, titolo, inner, fmt); return; }
     setPdfBusy(true);
     await exportPdf(titolo, inner, titolo, fmt);
@@ -6084,7 +6347,7 @@ function App(){
     );
 
     const isMeet = doc.tipo==='riunione';
-    const inner = () => docToHtml(doc, sezioni[doc.sezioneId]);
+    const inner = () => applicaStampa(docToHtml(doc, sezioni[doc.sezioneId]), doc.stampa);
     const fname = (doc.titolo||'documento') + (doc.data? ' '+doc.data : '');
 
     return (
@@ -6098,6 +6361,7 @@ function App(){
           )}
           <span className="spacer"></span>
           <span className="saved">{salvato}</span>
+          <button className="btn sm" onClick={()=>setAnteprima(true)} title="Vedi le pagine e sistemale per la stampa">Anteprima</button>
           <button className="btn sm" onClick={()=>exportWord(fname, doc.titolo||'Documento', inner(), fmt)}>Word</button>
           <button className="btn sm" disabled={pdfBusy} onClick={async()=>{
             setPdfBusy(true);
@@ -6631,6 +6895,9 @@ function App(){
             setModalSposta(null); setScelti([]); setSelMulti(false);
           }}/>
       )}
+      {anteprima && doc && <AnteprimaStampa doc={doc} sezione={sezioni[doc.sezioneId]} fmt={fmt}
+        onClose={()=>setAnteprima(false)}
+        onSave={(st, resta)=>{ patchDoc({stampa: st}); if(!resta) setAnteprima(false); }}/>}
       {modalStorico && doc && (
         <StoricoModal doc={doc} onClose={()=>setModalStorico(false)}
           onRipristina={(v)=>{
