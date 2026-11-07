@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "20 set · elenchi riga per riga";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "6 nov 2026 · blocco PIN/Face ID e aggiornamento";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -108,7 +108,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   background:transparent;border-radius:var(--radius);color:var(--muted);margin-top:4px}
 .nav-add:hover{border-color:var(--accent);color:var(--accent)}
 .sidebar-foot{padding:10px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px}
-.sidebar-foot button{border:0;background:none;color:var(--muted);text-decoration:underline;padding:0}
+.sidebar-foot button{border:0;background:none;color:var(--muted);text-decoration:underline;padding:0;white-space:nowrap}
+.sidebar-foot{flex-wrap:wrap}
+.sidebar-foot .ver{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .sidebar-foot .ver{font-size:10.5px;color:#a9b5ae;white-space:nowrap}
 
 /* ── lista documenti ────────────────────────────────── */
@@ -497,6 +499,33 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .sw{width:26px;height:26px;border-radius:5px;border:2px solid transparent}
 .sw.on{border-color:var(--ink)}
 .modal-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+
+/* ═══ blocco con PIN / Face ID e aggiornamento ═══ */
+.blocco{position:fixed;inset:0;z-index:300;background:var(--shell);display:flex;align-items:center;justify-content:center;padding:20px}
+.blocco-box{width:100%;max-width:320px;text-align:center}
+.blocco-box h1{font-family:var(--serif);font-size:26px;margin:0 0 4px}
+.blocco-box p{margin:0 0 20px;color:var(--muted);font-size:13.5px}
+.pin-punti{display:flex;justify-content:center;gap:14px;margin:6px 0 22px}
+.pin-punti span{width:14px;height:14px;border-radius:50%;border:2px solid var(--accent)}
+.pin-punti span.on{background:var(--accent)}
+.pin-punti.errore{animation:scuoti .35s}
+@keyframes scuoti{0%,100%{transform:translateX(0)}25%{transform:translateX(-9px)}75%{transform:translateX(9px)}}
+.pin-tasti{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}
+.pin-tasti button{height:72px;border-radius:50%;border:1px solid var(--line);background:var(--paper);font-size:24px;color:var(--ink);cursor:pointer;font-family:inherit}
+.pin-tasti button:active{background:var(--accent-soft)}
+.pin-tasti button.vuoto{border:0;background:none;cursor:default}
+.pin-tasti button.testo{font-size:13px;border:0;background:none;color:var(--accent)}
+.blocco-msg{min-height:20px;color:var(--red);font-size:13px;margin:-10px 0 12px}
+.blocco-link{margin-top:22px;background:none;border:0;color:var(--muted);text-decoration:underline;font-size:12.5px;cursor:pointer}
+.agg-pop{position:fixed;inset:0;z-index:250;background:rgba(23,33,29,.45);display:flex;align-items:center;justify-content:center;padding:18px}
+.agg-box{background:var(--paper);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 16px 44px rgba(23,33,29,.3);text-align:center}
+.agg-box h3{font-family:var(--serif);font-size:21px;margin:0 0 8px}
+.agg-box p{color:var(--ink-soft);font-size:14px;margin:0 0 6px}
+.agg-box .ver-nuova{color:var(--accent);font-weight:600}
+.opz{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.opz:last-child{border-bottom:0}
+.opz b{display:block;font-size:14px;font-weight:600}
+.opz small{color:var(--muted);font-size:12px}
 
 /* ═══ anteprima di stampa ═══ */
 .st-ov{position:fixed;inset:0;z-index:60;background:var(--shell);display:flex;flex-direction:column}
@@ -5904,6 +5933,183 @@ function Lavagna({value, onChange, docKey, compatta, apiRef}){
   );
 }
 
+
+/* ═══════════ blocco con PIN / Face ID ═══════════
+   Il blocco vale per questo dispositivo: PIN (salvato solo come impronta cifrata) e Face ID / Touch ID
+   (passkey del dispositivo). Protegge l'app aperta da occhi indiscreti; i dati restano protetti
+   dall'accesso con password e dalle regole del database. */
+const BLOCCO_KEY = 'quaderno:blocco';
+const bloccoCfg = () => { const c = local.get(BLOCCO_KEY); return c && (c.pin || c.bio) ? c : null; };
+const esadecimale = buf => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+const impronta = async (testo) => esadecimale(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(testo)));
+const inB64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const daB64 = s => Uint8Array.from(atob(s), c=>c.charCodeAt(0));
+async function bioDisponibile(){
+  try{ return !!(window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable
+    && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }catch(e){ return false; }
+}
+async function bioRegistra(nome){
+  const cred = await navigator.credentials.create({ publicKey: {
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    rp: { name: 'Quaderno' },
+    user: { id: crypto.getRandomValues(new Uint8Array(16)), name: nome || 'Quaderno', displayName: 'Quaderno' },
+    pubKeyCredParams: [{type:'public-key', alg:-7}, {type:'public-key', alg:-257}],
+    authenticatorSelection: { authenticatorAttachment:'platform', userVerification:'required', residentKey:'preferred' },
+    timeout: 60000
+  }});
+  return inB64(cred.rawId);
+}
+async function bioVerifica(id){
+  const r = await navigator.credentials.get({ publicKey: {
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    allowCredentials: [{ type:'public-key', id: daB64(id), transports:['internal','hybrid'] }],
+    userVerification: 'required', timeout: 60000
+  }});
+  return !!r;
+}
+async function pinGiusto(cfg, pin){ return !!(cfg && cfg.pin && await impronta(cfg.pin.sale + ':' + pin) === cfg.pin.hash); }
+async function pinNuovo(pin){ const sale = esadecimale(crypto.getRandomValues(new Uint8Array(16))); return { sale, hash: await impronta(sale + ':' + pin), len: pin.length }; }
+
+function TastierinoPin({lunghezza, onFatto, errore, bloccato}){
+  const [cifre, setCifre] = useState('');
+  useEffect(()=>{ if(errore) setCifre(''); }, [errore]);
+  const premi = (c) => {
+    if(bloccato) return;
+    setCifre(p=>{
+      const n = (p + c).slice(0, lunghezza);
+      if(n.length === lunghezza) setTimeout(()=>{ onFatto(n); setCifre(''); }, 120);
+      return n;
+    });
+  };
+  const togli = () => setCifre(p=>p.slice(0, -1));
+  useEffect(()=>{
+    const k = e => { if(/^[0-9]$/.test(e.key)) premi(e.key); else if(e.key === 'Backspace') togli(); };
+    document.addEventListener('keydown', k); return ()=>document.removeEventListener('keydown', k);
+  });
+  return (
+    <>
+      <div className={'pin-punti' + (errore ? ' errore' : '')} key={errore}>
+        {Array.from({length: lunghezza}).map((_, i)=><span key={i} className={i < cifre.length ? 'on' : ''}></span>)}
+      </div>
+      <div className="pin-tasti">
+        {['1','2','3','4','5','6','7','8','9'].map(c=><button key={c} onClick={()=>premi(c)}>{c}</button>)}
+        <button className="vuoto" tabIndex={-1}></button>
+        <button onClick={()=>premi('0')}>0</button>
+        <button className="testo" onClick={togli}>Cancella</button>
+      </div>
+    </>
+  );
+}
+
+function SchermoBlocco({cfg, onSblocca, onPassword}){
+  const [msg, setMsg] = useState('');
+  const [errore, setErrore] = useState(0);
+  const [attesa, setAttesa] = useState(0);
+  const tentativi = useRef(0);
+  const conBio = async () => {
+    try{ if(await bioVerifica(cfg.bio.id)) onSblocca(); }
+    catch(e){ setMsg(cfg.pin ? 'Face ID / Touch ID non riuscito: usa il PIN.' : 'Face ID / Touch ID non riuscito: riprova.'); }
+  };
+  useEffect(()=>{
+    try{ if(document.activeElement) document.activeElement.blur(); }catch(e){}   // niente tasti che finiscono nel documento sotto
+    if(cfg.bio) conBio();
+  }, []);
+  useEffect(()=>{ if(!attesa) return; const t = setTimeout(()=>setAttesa(a=>Math.max(0, a - 1)), 1000); return ()=>clearTimeout(t); }, [attesa]);
+  const provaPin = async (pin) => {
+    if(await pinGiusto(cfg, pin)){ tentativi.current = 0; onSblocca(); return; }
+    tentativi.current++; setErrore(x=>x + 1);
+    if(tentativi.current >= 5){ setAttesa(30); tentativi.current = 0; setMsg('Troppi tentativi: aspetta 30 secondi.'); }
+    else setMsg('PIN sbagliato.');
+  };
+  return (
+    <div className="blocco">
+      <div className="blocco-box">
+        <h1>Quaderno</h1>
+        <p>{cfg.pin ? 'Inserisci il PIN per entrare' : 'Sblocca con Face ID / Touch ID'}</p>
+        <div className="blocco-msg">{attesa ? `Riprova fra ${attesa} s` : msg}</div>
+        {cfg.pin && <TastierinoPin lunghezza={cfg.pin.len || 4} onFatto={provaPin} errore={errore} bloccato={!!attesa}/>}
+        {cfg.bio && <div style={{marginTop:18}}><button className="btn primary" onClick={conBio}>Usa Face ID / Touch ID</button></div>}
+        <div><button className="blocco-link" onClick={onPassword}>Hai dimenticato il PIN? Esci e accedi con la password</button></div>
+      </div>
+    </div>
+  );
+}
+
+function ImpostazioniBlocco({email, onClose}){
+  const [cfg, setCfg] = useState(()=>local.get(BLOCCO_KEY) || {});
+  const [bioOk, setBioOk] = useState(false);
+  const [fase, setFase] = useState(null);      // null | 'nuovo' | 'conferma'
+  const [primo, setPrimo] = useState('');
+  const [lung, setLung] = useState(4);
+  const [errore, setErrore] = useState(0);
+  const [msg, setMsg] = useState('');
+  useEffect(()=>{ bioDisponibile().then(setBioOk); }, []);
+  const salva = (n) => { setCfg(n); local.set(BLOCCO_KEY, n); };
+  const minuti = cfg.minuti === undefined ? 5 : cfg.minuti;
+  const attivaBio = async () => {
+    try{ const id = await bioRegistra(email); salva({...cfg, bio:{id}}); setMsg('Face ID / Touch ID attivo su questo dispositivo.'); }
+    catch(e){ setMsg('Non sono riuscito ad attivare Face ID / Touch ID su questo dispositivo.'); }
+  };
+  const pinScelto = async (p) => {
+    if(fase === 'nuovo'){ setPrimo(p); setFase('conferma'); setMsg(''); return; }
+    if(p !== primo){ setErrore(x=>x + 1); setMsg('I due PIN non coincidono: ricomincia.'); setFase('nuovo'); setPrimo(''); return; }
+    salva({...cfg, pin: await pinNuovo(p)}); setFase(null); setPrimo(''); setMsg('PIN salvato.');
+  };
+  if(fase) return (
+    <div className="blocco" style={{zIndex:320}}>
+      <div className="blocco-box">
+        <h1>{fase === 'nuovo' ? 'Nuovo PIN' : 'Conferma il PIN'}</h1>
+        <p>{fase === 'nuovo' ? `Scegli un PIN di ${lung} cifre` : 'Scrivilo di nuovo'}</p>
+        {fase === 'nuovo' && <div style={{marginBottom:12}}>
+          <button className={'btn sm' + (lung === 4 ? ' primary' : '')} onClick={()=>setLung(4)}>4 cifre</button>{' '}
+          <button className={'btn sm' + (lung === 6 ? ' primary' : '')} onClick={()=>setLung(6)}>6 cifre</button></div>}
+        <div className="blocco-msg">{msg}</div>
+        <TastierinoPin key={fase + lung} lunghezza={lung} onFatto={pinScelto} errore={errore}/>
+        <div><button className="blocco-link" onClick={()=>{ setFase(null); setMsg(''); }}>Annulla</button></div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="overlay" onMouseDown={e=>{ if(e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" style={{maxWidth:440}}>
+        <h3>Blocco dell'app</h3>
+        <div className="opz">
+          <div><b>PIN</b><small>{cfg.pin ? `Attivo (${cfg.pin.len || 4} cifre)` : 'Non attivo'}</small></div>
+          <div style={{display:'flex',gap:6}}>
+            <button className="btn sm" onClick={()=>{ setFase('nuovo'); setMsg(''); }}>{cfg.pin ? 'Cambia' : 'Imposta'}</button>
+            {cfg.pin && <button className="btn sm" onClick={()=>{ const n = {...cfg}; delete n.pin; salva(n); }}>Togli</button>}
+          </div>
+        </div>
+        <div className="opz">
+          <div><b>Face ID / Touch ID</b><small>{!bioOk ? 'Non disponibile su questo dispositivo o browser' : cfg.bio ? 'Attivo su questo dispositivo' : 'Non attivo'}</small></div>
+          <div style={{display:'flex',gap:6}}>
+            {bioOk && !cfg.bio && <button className="btn sm" onClick={attivaBio}>Attiva</button>}
+            {cfg.bio && <button className="btn sm" onClick={()=>{ const n = {...cfg}; delete n.bio; salva(n); }}>Togli</button>}
+          </div>
+        </div>
+        <div className="opz">
+          <div><b>Blocca di nuovo</b><small>dopo che l'app è rimasta in secondo piano</small></div>
+          <select value={minuti} onChange={e=>salva({...cfg, minuti: parseInt(e.target.value, 10)})} style={{width:'auto'}}>
+            <option value={0}>subito</option><option value={1}>dopo 1 minuto</option><option value={5}>dopo 5 minuti</option>
+            <option value={15}>dopo 15 minuti</option><option value={60}>dopo 1 ora</option>
+          </select>
+        </div>
+        {msg && <div className="spazio-sub" style={{marginTop:10,color:'var(--accent)'}}>{msg}</div>}
+        <div className="spazio-sub" style={{marginTop:12}}>Il blocco vale solo su questo dispositivo: su ogni telefono o computer va attivato una volta.
+          Se dimentichi il PIN puoi sempre uscire e rientrare con la password.</div>
+        <div className="modal-foot"><button className="btn primary" onClick={onClose}>Fatto</button></div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ aggiornamento dell'app ═══════════ */
+async function versioneOnline(){
+  const t = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'}).then(r=>r.ok ? r.text() : '');
+  const m = t.match(/window\.APP_VER\s*=\s*"([^"]*)"/);
+  return m ? m[1] : null;
+}
+
 function Login(){
   const [email,setEmail]=useState(window.AUTH_EMAIL||''); const [pw,setPw]=useState(''); const [err,setErr]=useState(''); const [busy,setBusy]=useState(false);
   const entra = () => {
@@ -5935,6 +6141,46 @@ function Login(){
 /* ═══════════ app ═══════════ */
 function App(){
   const [user,setUser] = useState(HAS_FB? undefined : null);
+  /* blocco con PIN / Face ID */
+  const [bloccato,setBloccato] = useState(()=>!!bloccoCfg());
+  const [modalBlocco,setModalBlocco] = useState(false);
+  const nascostaDa = useRef(0);
+  useEffect(()=>{
+    const v = () => {
+      if(document.visibilityState === 'hidden'){ nascostaDa.current = Date.now(); return; }
+      const c = bloccoCfg(); if(!c || !nascostaDa.current) return;
+      const min = c.minuti === undefined ? 5 : c.minuti;
+      if(Date.now() - nascostaDa.current >= min * 60000) setBloccato(true);
+    };
+    document.addEventListener('visibilitychange', v);
+    return ()=>document.removeEventListener('visibilitychange', v);
+  }, []);
+  /* aggiornamento: controllo se online c'è una versione nuova e la propongo con un avviso ben visibile */
+  const [nuovaVer,setNuovaVer] = useState(null);
+  const [rimandata,setRimandata] = useState(null);
+  const [aggiorno,setAggiorno] = useState(false);
+  const controllaVer = async (manuale) => {
+    try{
+      const v = await versioneOnline();
+      if(v && v !== window.APP_VER){ setNuovaVer(v); if(manuale) setRimandata(null); return true; }
+    }catch(e){}
+    return false;
+  };
+  useEffect(()=>{
+    const t0 = setTimeout(()=>controllaVer(), 4000);
+    const ogni = setInterval(()=>controllaVer(), 15 * 60000);
+    const v = () => { if(document.visibilityState === 'visible') controllaVer(); };
+    document.addEventListener('visibilitychange', v);
+    return ()=>{ clearTimeout(t0); clearInterval(ogni); document.removeEventListener('visibilitychange', v); };
+  }, []);
+  const salvaPrimaRef = useRef(()=>{});
+  const aggiornaOra = () => {
+    setAggiorno(true);
+    try{ if(document.activeElement) document.activeElement.blur(); }catch(e){}
+    try{ salvaPrimaRef.current(); }catch(e){}           // quello che stavo scrivendo va salvato prima
+    setTimeout(()=>{ location.replace(location.pathname + '?v=' + Date.now()); }, 1500);
+  };
+  const aggiornaApp = async () => { if(!(await controllaVer(true))) aggiornaOra(); };
   const [sezioni,setSezioni] = useState({});
   const [documenti,setDocumenti] = useState({});
   const [pronto,setPronto] = useState(!HAS_FB);
@@ -6275,6 +6521,7 @@ function App(){
 
   /* cambiando documento, salvo subito quello che era in attesa (prima veniva buttato) */
   useEffect(()=>{ salvaCorpo(); },[selDoc]);
+  salvaPrimaRef.current = salvaCorpo;
   useEffect(()=>{
     const via = () => salvaCorpo();
     const nascosta = () => { if(document.visibilityState === 'hidden') salvaCorpo(); };
@@ -6781,8 +7028,12 @@ function App(){
         </div>
         <div className="sidebar-foot">
           <button onClick={()=>setModalFmt(true)}>Formato export</button>
-          <span className="ver" title="Versione del file caricato">{window.APP_VER||'—'}</span>
+          <button onClick={()=>setModalBlocco(true)} title="PIN e Face ID / Touch ID">Blocco</button>
+          <button onClick={aggiornaApp} title={'Versione: ' + (window.APP_VER||'—') + ' — controlla e scarica l\'ultima'}>Aggiorna app</button>
           {HAS_FB && <button onClick={()=>fbAuth.signOut()}>Esci</button>}
+        </div>
+        <div className="sidebar-foot" style={{borderTop:0,paddingTop:0}}>
+          <span className="ver" title="Versione del file caricato">{window.APP_VER||'—'}</span>
         </div>
       </div>
 
@@ -6983,6 +7234,23 @@ function App(){
       )}
       {modalNew && <NewDocModal onCreate={creaDoc} onClose={()=>setModalNew(false)}/>}
       {modalFmt && <FormatoModal fmt={fmt} onSave={salvaFmt} onClose={()=>setModalFmt(false)}/>}
+      {modalBlocco && <ImpostazioniBlocco email={user && user.email} onClose={()=>setModalBlocco(false)}/>}
+      {nuovaVer && rimandata !== nuovaVer && (
+        <div className="agg-pop">
+          <div className="agg-box">
+            <h3>Nuova versione disponibile</h3>
+            <p>È pronta una versione aggiornata del Quaderno:</p>
+            <p className="ver-nuova">{nuovaVer}</p>
+            <p style={{fontSize:12.5,color:'var(--muted)',marginTop:10}}>Ora stai usando: {window.APP_VER||'—'}.<br/>Quello che stai scrivendo viene salvato prima di aggiornare.</p>
+            <div className="modal-foot" style={{justifyContent:'center'}}>
+              <button className="btn" disabled={aggiorno} onClick={()=>setRimandata(nuovaVer)}>Più tardi</button>
+              <button className="btn primary" disabled={aggiorno} onClick={aggiornaOra}>{aggiorno ? 'Salvo e aggiorno…' : 'Aggiorna ora'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {bloccato && bloccoCfg() && <SchermoBlocco cfg={bloccoCfg()} onSblocca={()=>setBloccato(false)}
+        onPassword={()=>{ local.set(BLOCCO_KEY, null); setBloccato(false); if(HAS_FB) fbAuth.signOut(); }}/>}
       {modalSposta && (
         <SpostaModal quanti={modalSposta.ids.length} radici={radici} figlieDi={figlieDi}
           correnteId={cartella || selSez}
