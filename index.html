@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "10 nov 2026 · strumenti a schede e copia ordine del giorno";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "10 nov 2026 · selezione multipla con Ctrl/Cmd";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -322,6 +322,7 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   padding:2px 9px;font-size:11.5px;margin-right:4px;white-space:nowrap}
 .pal-wrap{position:relative;display:inline-flex;gap:0}
 .solo-mobile{display:none!important}
+::highlight(quaderno-multi){background-color:#cfe3f7;color:inherit}
 /* ═══ barra degli strumenti a schede ═══ */
 .rt-tools{flex-direction:column;align-items:stretch;gap:4px}
 .rt-riga1{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -1883,7 +1884,39 @@ function RichText({value, onChange, placeholder, docKey}){
     impaginaSciolti(contenitoreDelCursore());
   };
 
+  /* ═══ più pezzi di testo selezionati insieme (Ctrl o Cmd + selezione, come in Word) ═══
+     Il browser tiene una selezione sola: quelle fatte prima, tenendo premuto Ctrl/Cmd, le conservo io,
+     le mostro evidenziate e gli strumenti di formato le applicano a tutte. */
+  const altreSel = useRef([]);
+  const inMultiplo = useRef(false);
+  const disegnaAltreSel = () => {
+    try{
+      if(!(window.CSS && CSS.highlights && window.Highlight)) return;
+      if(altreSel.current.length) CSS.highlights.set('quaderno-multi', new Highlight(...altreSel.current));
+      else CSS.highlights.delete('quaderno-multi');
+    }catch(e){}
+  };
+  const svuotaAltreSel = () => { if(altreSel.current.length){ altreSel.current = []; disegnaAltreSel(); } };
+  const uguali = (a, b) => a.compareBoundaryPoints(Range.START_TO_START, b) === 0 && a.compareBoundaryPoints(Range.END_TO_END, b) === 0;
+  const suOgniSelezione = (fn) => {
+    if(inMultiplo.current || !altreSel.current.length) return false;
+    const sel = window.getSelection();
+    const tutte = altreSel.current.filter(r=>r.startContainer.isConnected && !r.collapsed);
+    let cur = null;
+    if(sel.rangeCount && ref.current.contains(sel.getRangeAt(0).commonAncestorContainer)) cur = sel.getRangeAt(0);
+    else if(rangeRef.current) cur = rangeRef.current;
+    if(cur && !cur.collapsed && !tutte.some(r=>uguali(r, cur))) tutte.push(cur.cloneRange());
+    // dall'ultima alla prima: così le modifiche non spostano quelle ancora da fare
+    tutte.sort((a, b)=>b.compareBoundaryPoints(Range.START_TO_START, a));
+    inMultiplo.current = true;
+    try{
+      tutte.forEach(r=>{ try{ ref.current.focus(); sel.removeAllRanges(); sel.addRange(r); salvaRange(); fn(); }catch(e){} });
+    } finally { inMultiplo.current = false; svuotaAltreSel(); }
+    return true;
+  };
+
   const cmd = (c,v)=>{
+    if(suOgniSelezione(()=>cmd(c, v))) return;
     if(STILE_CMD[c] && applicaStileCelle(STILE_CMD[c], true)) return;   // celle selezionate
     ref.current.focus();
     // elenchi e titoli valgono solo per la riga del cursore, non per quelle scritte sopra
@@ -2027,6 +2060,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   /* colore del testo ed evidenziatore: servono gli stili CSS, non i vecchi tag <font> */
   const cmdCss = (c,v)=>{
+    if(suOgniSelezione(()=>cmdCss(c, v))) return;
     if(c === 'foreColor' && applicaStileCelle({color:v})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
     if(c === 'foreColor' && applicaStileTesto({color:v})) { setPal(null); return; }
@@ -2050,6 +2084,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
 
   const evidenzia = (v) => {
+    if(suOgniSelezione(()=>evidenzia(v))) return;
     if(applicaStileCelle({backgroundColor: v === 'transparent' ? '' : v})) { setPal(null); return; }
     ref.current.focus(); ripristinaRange();
     if(v !== 'transparent' && applicaStileTesto({backgroundColor:v})) { setPal(null); return; }
@@ -2221,6 +2256,15 @@ function RichText({value, onChange, placeholder, docKey}){
         if(x === t || x.classList.contains('grp-c')) return;
         if(!x.textContent.replace(/[\s\u00a0\u200b]/g,'') && !x.querySelector('img,table')){ x.remove(); cambiato = true; }
       });
+      // gruppo chiamato "Elenco" per sbaglio, con dentro come primo blocco un elenco di una voce sola: quella voce è il titolo
+      if(t && cnt && t.textContent.trim() === 'Elenco'){
+        const pr = cnt.firstElementChild;
+        const voci = pr && /^(UL|OL)$/.test(pr.tagName) ? Array.from(pr.children).filter(x=>x.tagName === 'LI') : [];
+        if(voci.length === 1 && voci[0].textContent.trim() && !voci[0].querySelector('ul,ol,table') && pr.nextElementSibling){
+          const n = pr.tagName === 'OL' ? (parseInt(voci[0].getAttribute('value') || pr.getAttribute('start') || '1', 10) || 1) + '. ' : '';
+          t.innerHTML = n + voci[0].innerHTML; pr.remove(); cambiato = true;
+        }
+      }
       // gruppo vuoto (niente titolo e niente contenuto): via
       const testo = (t ? t.textContent : '') + (cnt ? cnt.textContent : '');
       if(!testo.replace(/[\s ]/g,'') && !(cnt && cnt.querySelector('img,table'))){ g.remove(); cambiato = true; }
@@ -2310,6 +2354,14 @@ function RichText({value, onChange, placeholder, docKey}){
       if(bl.length >= 3 && raggruppaPerTitoli(bl)) return;
       if(bl.length >= 2){
         const primo = bl[0];
+        /* il primo blocco è un elenco di una voce sola (es. "1. ANDAMENTO DEL CREDITO"): quella voce è il titolo.
+           Prima diventava un gruppo chiamato "Elenco". */
+        const voci = /^(UL|OL)$/.test(primo.tagName) ? Array.from(primo.children).filter(x=>x.tagName === 'LI') : [];
+        if(voci.length === 1 && voci[0].textContent.replace(/\s+/g,' ').trim() && !voci[0].querySelector('ul,ol,table')){
+          const n = primo.tagName === 'OL' ? (parseInt(voci[0].getAttribute('value') || primo.getAttribute('start') || '1', 10) || 1) + '. ' : '';
+          montaGruppo(n + voci[0].innerHTML, bl.slice(1), primo, null);
+          return;
+        }
         if(/^(UL|OL|TABLE)$/.test(primo.tagName)){
           // il primo blocco non è una riga di testo: lo lascio dentro e metto un titolo di scorta
           montaGruppo(primo.tagName === 'TABLE' ? 'Tabella' : 'Elenco', bl, null, null);
@@ -2599,6 +2651,7 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const setCorpo = (px) => {
     if(!px) return;
+    if(suOgniSelezione(()=>setCorpo(px))) return;
     const st = {fontSize: px + 'px'};
     if(applicaStileCelle(st)) return;
     ref.current.focus(); ripristinaRange();
@@ -2609,6 +2662,7 @@ function RichText({value, onChange, placeholder, docKey}){
     emit(true);
   };
   const setFamiglia = (v) => {
+    if(suOgniSelezione(()=>setFamiglia(v))) return;
     const st = {fontFamily: v};
     if(applicaStileCelle(st)) return;
     ref.current.focus(); ripristinaRange();
@@ -4744,6 +4798,18 @@ function RichText({value, onChange, placeholder, docKey}){
       <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning
         onMouseDown={e=>{
           clearTimeout(pennelloTimer.current);
+          // Ctrl/Cmd + selezione: la selezione di prima resta e se ne aggiunge un'altra
+          if(e.button === 0 && !(e.target.closest && e.target.closest('td,th'))){
+            if((e.ctrlKey || e.metaKey) && !e.shiftKey){
+              const s = window.getSelection();
+              if(s.rangeCount){
+                const r = s.getRangeAt(0);
+                if(!r.collapsed && ref.current.contains(r.commonAncestorContainer) && !altreSel.current.some(x=>uguali(x, r))){
+                  altreSel.current.push(r.cloneRange()); disegnaAltreSel();
+                }
+              }
+            } else svuotaAltreSel();
+          }
           const td = e.target.closest && e.target.closest('td,th');
           if(!td || !ref.current.contains(td)){ 
             if(inModifica.current) chiudiModifica();
@@ -4816,7 +4882,7 @@ function RichText({value, onChange, placeholder, docKey}){
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
         }}
         data-ph={placeholder||'Scrivi qui…'}
-        onInput={()=>{ if(numPop) setNumPop(null); emit(); }}
+        onInput={()=>{ svuotaAltreSel(); if(numPop) setNumPop(null); emit(); }}
         onKeyDown={e=>{
           // copia formato: Alt+O carica il pennello, Ctrl/Cmd+Maiusc+C copia, +V applica
           if(e.altKey && (e.key === 'o' || e.key === 'O' || e.code === 'KeyO')){
