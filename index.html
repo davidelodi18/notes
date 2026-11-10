@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "10 nov 2026 · selezione multipla con Ctrl/Cmd";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "10 nov 2026 · numeri a inizio riga non diventano elenco";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -2859,7 +2859,7 @@ function RichText({value, onChange, placeholder, docKey}){
     if(n.parentElement && n.parentElement.closest('li')) return false;   // già in un elenco
     const prima = n.textContent.slice(0, sel.anchorOffset);
     const puntato = /^\s*[-*•·–]$/.test(prima);
-    const numerato = /^\s*\d+[.)]?$/.test(prima);
+    const numerato = /^\s*\d+[.)]$/.test(prima);   // serve il punto o la parentesi: "25 " a inizio riga resta testo
     if(!puntato && !numerato) return false;
     e.preventDefault();
     n.textContent = n.textContent.slice(sel.anchorOffset);   // via il segno digitato
