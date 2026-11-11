@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "11 nov 2026 · gruppi chiusi protetti e pennello sul telefono";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "11 nov 2026 · niente pagina vuota sul telefono";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -322,6 +322,8 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   padding:2px 9px;font-size:11.5px;margin-right:4px;white-space:nowrap}
 .pal-wrap{position:relative;display:inline-flex;gap:0}
 .solo-mobile{display:none!important}
+.solo-tel-blocco{display:none;margin-top:18px}
+@media (max-width:900px){.solo-tel-blocco{display:block}}
 ::highlight(quaderno-multi){background-color:#cfe3f7;color:inherit}
 /* ═══ barra degli strumenti a schede ═══ */
 .rt-tools{flex-direction:column;align-items:stretch;gap:4px}
@@ -6413,6 +6415,12 @@ function App(){
   const [modalNew,setModalNew] = useState(false);
   const [salvato,setSalvato] = useState('');
   const [mobileView,setMobileView] = useState('nav'); // nav | doc
+  /* sul telefono, se il documento aperto sparisce (eliminato, cestinato, archiviato da un altro dispositivo…)
+     si torna all'elenco: prima restava una pagina vuota "Nessun documento aperto" senza via d'uscita */
+  useEffect(()=>{
+    if(!pronto || mobileView !== 'doc' || selSez === 'ATTIVITA' || selSez === 'SPAZIO') return;
+    if(!selDoc || !documenti[selDoc]) setMobileView('nav');
+  }, [mobileView, selDoc, selSez, documenti, pronto]);
   const [menuOpen,setMenuOpen] = useState(false);
   const [pdfBusy,setPdfBusy] = useState(false);
   const [focusId,setFocusId] = useState(null);
@@ -6933,6 +6941,7 @@ function App(){
       <div className="empty" style={{paddingTop:'22vh'}}>
         <strong>Nessun documento aperto</strong>
         Scegli un documento a sinistra, oppure creane uno nuovo.
+        <div className="solo-tel-blocco"><button className="btn" onClick={()=>setMobileView('nav')}>← Torna all'elenco</button></div>
       </div>
     );
 
