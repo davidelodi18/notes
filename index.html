@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "11 nov 2026 · niente pagina vuota sul telefono";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "11 nov 2026 · screenshot incollabili nel testo";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -1248,7 +1248,7 @@ function exportWord(filename, title, inner, fmt){
 
 
 /* ═══════════ compressione immagini ═══════════ */
-function compressImage(file, maxPx=1200, quality=0.78){
+function compressImage(file, maxPx=1200, quality=0.78, nitido=false){
   return new Promise((res,rej)=>{
     const r = new FileReader();
     r.onload = () => {
@@ -1261,7 +1261,11 @@ function compressImage(file, maxPx=1200, quality=0.78){
         const ctx = c.getContext('2d');
         ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
         ctx.drawImage(img,0,0,w,h);
-        res(c.toDataURL('image/jpeg', quality));
+        const jpg = c.toDataURL('image/jpeg', quality);
+        if(!nitido) return res(jpg);
+        // screenshot (tabelle, testo): in PNG resta nitido; lo uso se non pesa troppo di più
+        const png = c.toDataURL('image/png');
+        res(png.length <= jpg.length * 1.4 ? png : jpg);
       };
       img.onerror = () => rej(new Error('Immagine non leggibile'));
       img.src = r.result;
@@ -4460,6 +4464,22 @@ function RichText({value, onChange, placeholder, docKey}){
     document.execCommand('insertHTML', false, html + '<p><br></p>');
     emit(true);
   };
+  /* foto incollate (screenshot) o trascinate nel testo: compresse come quelle scelte dal pulsante */
+  const inserisciImmagini = async (files) => {
+    salvaRange();
+    const doveEra = rangeRef.current ? rangeRef.current.cloneRange() : null;
+    for(const f of files){
+      setBusy('Inserisco la foto…');
+      try{
+        const dataUrl = await compressImage(f, 1600, 0.88, true);
+        ref.current.focus();
+        if(doveEra && doveEra.startContainer.isConnected){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(doveEra); }
+        document.execCommand('insertHTML', false, `<figure><img src="${dataUrl}" alt="immagine incollata"><figcaption></figcaption></figure><p><br></p>`);
+        emit(true);
+      }catch(err){ alert('Non sono riuscito a inserire la foto.'); }
+    }
+    setBusy('');
+  };
   const onFile = async (e) => {
     const files = Array.from(e.target.files||[]);
     e.target.value='';
@@ -5013,9 +5033,26 @@ function RichText({value, onChange, placeholder, docKey}){
           }, 150);
         }}
         onFocus={checkCtx}
+        onDrop={e=>{
+          const fs = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f=>/^image\//.test(f.type));
+          if(!fs.length) return;
+          e.preventDefault();
+          try{                                       // la foto va dove è stata lasciata
+            const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+            if(r && ref.current.contains(r.startContainer)){ const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+          }catch(err){}
+          inserisciImmagini(fs);
+        }}
         onPaste={e=>{
           const dt = e.clipboardData||window.clipboardData;
           const testoPiano = dt.getData('text/plain') || '';
+          /* screenshot di un'area (Win+Maiusc+S, Cmd+Ctrl+Maiusc+4…) o immagine copiata: va nel testo come foto */
+          const immagini = Array.from(dt.items || []).filter(it=>it.kind === 'file' && /^image\//.test(it.type)).map(it=>it.getAsFile()).filter(Boolean);
+          if(immagini.length && !testoPiano.trim()){
+            e.preventDefault();
+            inserisciImmagini(immagini);
+            return;
+          }
           // dentro una tabella, un testo a colonne riempie le celle a partire da quella scelta
           const inCella = cellaCorrente() || cellFromSelection();
           if(inCella && /\t|\n/.test(testoPiano.trim())){
