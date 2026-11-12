@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "11 nov 2026 · screenshot incollabili nel testo";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "12 nov 2026 · Ctrl+B sistemato e impostazioni delle foto";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -322,6 +322,29 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   padding:2px 9px;font-size:11.5px;margin-right:4px;white-space:nowrap}
 .pal-wrap{position:relative;display:inline-flex;gap:0}
 .solo-mobile{display:none!important}
+/* ═══ foto: posizione, testo a lato, cornice di scelta, ritaglio ═══ */
+.rt figure.img-sx{text-align:left}.rt figure.img-sx img{margin:0}
+.rt figure.img-dx{text-align:right}.rt figure.img-dx img{margin:0 0 0 auto}
+.rt figure.img-flt-sx{float:left;width:45%;margin:4px 18px 8px 0}
+.rt figure.img-flt-dx{float:right;width:45%;margin:4px 0 8px 18px}
+.rt figure.img-flt-sx img,.rt figure.img-flt-dx img{width:100%}
+.rt::after{content:'';display:table;clear:both}
+.rt img{cursor:pointer}
+.img-cornice{position:absolute;z-index:6;pointer-events:none;outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.img-ctx button.on{background:#255840;color:#fff}
+.img-ctx .img-ctx-et{font-size:11px;color:var(--muted);margin:0 2px 0 4px}
+.img-ctx .sep{width:1px;align-self:stretch;background:#c9ded2;margin:0 3px}
+.img-ctx button.del{background:#f7e5e3;color:#a33c34}
+.rit-area{position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none;-webkit-user-select:none;line-height:0}
+.rit-area img{max-width:100%;max-height:62vh;display:block}
+.rit-ombra{position:absolute;inset:0;background:rgba(23,33,29,.5);pointer-events:none}
+.rit-box{position:absolute;outline:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4);cursor:move}
+.rit-m{position:absolute;width:16px;height:16px;background:#fff;border:2px solid #2f6f4e;border-radius:3px}
+.rit-no{left:-8px;top:-8px;cursor:nwse-resize}.rit-ne{right:-8px;top:-8px;cursor:nesw-resize}
+.rit-so{left:-8px;bottom:-8px;cursor:nesw-resize}.rit-se{right:-8px;bottom:-8px;cursor:nwse-resize}
+.rit-n{left:50%;top:-8px;margin-left:-8px;cursor:ns-resize}.rit-s{left:50%;bottom:-8px;margin-left:-8px;cursor:ns-resize}
+.rit-o{top:50%;left:-8px;margin-top:-8px;cursor:ew-resize}.rit-e{top:50%;right:-8px;margin-top:-8px;cursor:ew-resize}
+
 .solo-tel-blocco{display:none;margin-top:18px}
 @media (max-width:900px){.solo-tel-blocco{display:block}}
 ::highlight(quaderno-multi){background-color:#cfe3f7;color:inherit}
@@ -914,6 +937,9 @@ td,th{border:1px solid #d5dcd7;padding:5pt 7pt;vertical-align:top;font-family:${
 th{background:#e9ede9;text-align:left;font-weight:bold}
 img{max-width:100%;height:auto}
 figure{margin:9pt 0;text-align:center;page-break-inside:avoid}
+figure.img-sx{text-align:left} figure.img-sx img{margin:0} figure.img-dx{text-align:right} figure.img-dx img{margin:0 0 0 auto}
+figure.img-flt-sx{float:left;width:45%;margin:3pt 12pt 6pt 0} figure.img-flt-dx{float:right;width:45%;margin:3pt 0 6pt 12pt}
+figure.img-flt-sx img,figure.img-flt-dx img{width:100%}
 figcaption{font-family:${f.etich};font-size:${r(0.78)}pt;color:#7b8a83;margin-top:3pt}
 ol,ul{padding-left:16pt;margin:5pt 0}
 ul ul{list-style-type:circle} ul ul ul{list-style-type:square}
@@ -976,6 +1002,9 @@ function pdfDomCss(o){
 .pdfdoc blockquote{border-left:2px solid #2f6f4e;margin:9px 0;padding-left:13px;color:#41504a;font-style:italic}
 .pdfdoc img{max-width:100%;height:auto}
 .pdfdoc figure{margin:12px 0;text-align:center}
+.pdfdoc figure.img-sx{text-align:left} .pdfdoc figure.img-sx img{margin:0} .pdfdoc figure.img-dx{text-align:right} .pdfdoc figure.img-dx img{margin:0 0 0 auto}
+.pdfdoc figure.img-flt-sx{float:left;width:45%;margin:4px 16px 8px 0} .pdfdoc figure.img-flt-dx{float:right;width:45%;margin:4px 0 8px 16px}
+.pdfdoc figure.img-flt-sx img,.pdfdoc figure.img-flt-dx img{width:100%}
 .pdfdoc figcaption{font-family:${f.etich};font-size:${r(0.78)}px;color:#7b8a83;margin-top:4px}
 .pdfdoc .grp{margin:0}
 .pdfdoc .grp-t{margin:0 0 6px}
@@ -1422,6 +1451,68 @@ function Palette({colori, onPick, onClear, etichetta, evid, recenti, onCustom}){
         <span className="ruota"></span> Scegli un colore…
       </button>
       <button className="pal-clear" onClick={onClear}>{etichetta}</button>
+    </div>
+  );
+}
+
+/* ═══ ritaglio di una foto: si trascinano gli angoli (o il riquadro intero) e si applica ═══ */
+function ModalRitaglio({src, onApply, onClose}){
+  const [r, setR] = useState({x:5, y:5, w:90, h:90});   // in % dell'immagine
+  const boxRef = useRef(null);
+  const tira = useRef(null);
+  const giu = (tipo) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(err){}
+    tira.current = {tipo, x0:e.clientX, y0:e.clientY, r0:{...r}};
+  };
+  const muovi = (e) => {
+    const t = tira.current; if(!t || !boxRef.current) return;
+    const b = boxRef.current.getBoundingClientRect();
+    const dx = (e.clientX - t.x0) / b.width * 100, dy = (e.clientY - t.y0) / b.height * 100;
+    let {x, y, w, h} = t.r0;
+    const MIN = 5;
+    if(t.tipo === 'sposta'){ x = Math.min(100 - w, Math.max(0, x + dx)); y = Math.min(100 - h, Math.max(0, y + dy)); }
+    else {
+      if(t.tipo.includes('o')){ const nx = Math.min(x + w - MIN, Math.max(0, x + dx)); w = w + (x - nx); x = nx; }
+      if(t.tipo.includes('e')){ w = Math.min(100 - x, Math.max(MIN, w + dx)); }
+      if(t.tipo.includes('n')){ const ny = Math.min(y + h - MIN, Math.max(0, y + dy)); h = h + (y - ny); y = ny; }
+      if(t.tipo.includes('s')){ h = Math.min(100 - y, Math.max(MIN, h + dy)); }
+    }
+    setR({x, y, w, h});
+  };
+  const su = () => { tira.current = null; };
+  const applica = () => {
+    const im = new Image();
+    im.onload = () => {
+      const sx = Math.round(im.naturalWidth * r.x / 100), sy = Math.round(im.naturalHeight * r.y / 100);
+      const sw = Math.max(1, Math.round(im.naturalWidth * r.w / 100)), sh = Math.max(1, Math.round(im.naturalHeight * r.h / 100));
+      const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, sw, sh);
+      ctx.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+      onApply(/^data:image\/png/.test(src) ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9));
+    };
+    im.onerror = () => { alert('Non sono riuscito a ritagliare questa foto.'); onClose(); };
+    im.src = src;
+  };
+  const maniglie = ['no','ne','so','se','n','s','o','e'];
+  return (
+    <div className="overlay" onMouseDown={e=>{ if(e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" style={{maxWidth:'min(900px,96vw)'}}>
+        <h3>Ritaglia la foto</h3>
+        <div className="spazio-sub" style={{marginBottom:10}}>Trascina gli angoli o i lati per scegliere la parte da tenere; trascina il riquadro per spostarlo.</div>
+        <div className="rit-area" ref={boxRef} onPointerMove={muovi} onPointerUp={su} onPointerCancel={su}>
+          <img src={src} alt="" draggable={false}/>
+          <div className="rit-ombra" style={{clipPath:`polygon(0 0,100% 0,100% 100%,0 100%,0 0,${r.x}% ${r.y}%,${r.x}% ${r.y+r.h}%,${r.x+r.w}% ${r.y+r.h}%,${r.x+r.w}% ${r.y}%,${r.x}% ${r.y}%)`}}></div>
+          <div className="rit-box" style={{left:r.x+'%', top:r.y+'%', width:r.w+'%', height:r.h+'%'}} onPointerDown={giu('sposta')}>
+            {maniglie.map(m=><span key={m} className={'rit-m rit-'+m} onPointerDown={giu(m)}></span>)}
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn" style={{marginRight:'auto'}} onClick={()=>setR({x:0,y:0,w:100,h:100})}>Tutta</button>
+          <button className="btn" onClick={onClose}>Annulla</button>
+          <button className="btn primary" onClick={applica}>Ritaglia</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1984,6 +2075,21 @@ function RichText({value, onChange, placeholder, docKey}){
     if(suOgniSelezione(()=>cmd(c, v))) return;
     if(STILE_CMD[c] && applicaStileCelle(STILE_CMD[c], true)) return;   // celle selezionate
     ref.current.focus();
+    /* grassetto e corsivo li metto io, pezzo per pezzo: il comando del browser non riusciva a cambiare
+       il testo che ha già uno stile suo (es. "font-weight: 400" lasciato dal pennello o da un copia-incolla),
+       e Ctrl+B sembrava non fare niente */
+    if(c === 'bold' || c === 'italic'){
+      const sl = window.getSelection();
+      if(sl && sl.rangeCount && !sl.isCollapsed && ref.current.contains(sl.getRangeAt(0).commonAncestorContainer)){
+        const pezzi = testiNelRange(sl.getRangeAt(0)).filter(p=>p.nodo.textContent.slice(p.a, p.b).trim());
+        if(pezzi.length){
+          const tutti = pezzi.every(p=>{ const cs = getComputedStyle(p.nodo.parentElement);
+            return c === 'bold' ? eGrassetto(cs.fontWeight) : (cs.fontStyle === 'italic' || cs.fontStyle === 'oblique'); });
+          const st = c === 'bold' ? {fontWeight: tutti ? 'normal' : 'bold'} : {fontStyle: tutti ? 'normal' : 'italic'};
+          if(applicaStileTesto(st)){ setTimeout(aggiornaFmtVisto, 0); return; }
+        }
+      }
+    }
     // elenchi e titoli valgono solo per la riga del cursore, non per quelle scritte sopra
     const eBlocco = /^(insertUnorderedList|insertOrderedList|formatBlock)$/.test(c);
     if(eBlocco){ perRigheProprie(); bloccoTenendoCursore(c, v); }
@@ -2958,6 +3064,73 @@ function RichText({value, onChange, placeholder, docKey}){
   };
   const wrapRef = useRef(null);
   const [tblBox,setTblBox] = useState(null);   // dove disegnare i comandi della tabella
+  /* ═══ immagini: clic su una foto → allineamento, dimensione, testo a lato, ritaglio ═══ */
+  const [imgBox,setImgBox] = useState(null);   // {top,left,w,h,bt,bl}: cornice e barra della foto scelta
+  const imgFig = useRef(null);
+  const [ritaglio,setRitaglio] = useState(null);  // {src}
+  const posizionaImg = (fig) => {
+    const im = fig && fig.querySelector('img');
+    if(!im || !wrapRef.current){ setImgBox(null); return; }
+    const r = im.getBoundingClientRect(), w = wrapRef.current.getBoundingClientRect();
+    const sopra = r.bottom + 90 > window.innerHeight && r.top - 52 > 120;   // di solito sotto la foto, sopra solo se in fondo allo schermo
+    setImgBox({ top: r.top - w.top, left: r.left - w.left, w: r.width, h: r.height,
+      bt: sopra ? r.top - w.top - 46 : r.bottom - w.top + 6, bl: Math.max(0, Math.min(r.left - w.left, w.width - 330)) });
+  };
+  const scegliImg = (im) => {
+    let fig = im.closest('figure');
+    if(!fig || !ref.current.contains(fig)){            // foto incollata senza cornice: gliela do
+      fig = document.createElement('figure');
+      im.parentNode.insertBefore(fig, im); fig.appendChild(im);
+    }
+    imgFig.current = fig; posizionaImg(fig);
+  };
+  const lasciaImg = () => { if(imgFig.current || imgBox){ imgFig.current = null; setImgBox(null); } };
+  const ALLINEA_IMG = ['img-sx','img-dx','img-flt-sx','img-flt-dx'];
+  const dimImg = (fig) => parseInt(fig.getAttribute('data-dim') || '0', 10) || 0;
+  const applicaDimImg = (fig, p) => {
+    const im = fig.querySelector('img'); if(!im) return;
+    const galleggia = fig.classList.contains('img-flt-sx') || fig.classList.contains('img-flt-dx');
+    if(p){ fig.setAttribute('data-dim', String(p)); } else fig.removeAttribute('data-dim');
+    if(galleggia){ fig.style.width = (p || 45) + '%'; im.style.width = '100%'; }
+    else { fig.style.removeProperty('width'); if(p) im.style.width = p + '%'; else im.style.removeProperty('width'); }
+    if(!fig.getAttribute('style')) fig.removeAttribute('style');
+  };
+  const allineaImg = (tipo) => {
+    const fig = imgFig.current; if(!fig) return;
+    ALLINEA_IMG.forEach(c=>fig.classList.remove(c));
+    if(tipo) fig.classList.add(tipo);
+    applicaDimImg(fig, dimImg(fig));
+    emit(true); setTimeout(()=>posizionaImg(fig), 0);
+  };
+  const misuraImg = (p) => {
+    const fig = imgFig.current; if(!fig) return;
+    applicaDimImg(fig, p);
+    emit(true); setTimeout(()=>posizionaImg(fig), 0);
+  };
+  const didascaliaImg = () => {
+    const fig = imgFig.current; if(!fig) return;
+    let cap = fig.querySelector('figcaption');
+    if(!cap){ cap = document.createElement('figcaption'); fig.appendChild(cap); }
+    lasciaImg();
+    ref.current.focus();
+    const r = document.createRange(); r.selectNodeContents(cap); r.collapse(false);
+    const sl = window.getSelection(); sl.removeAllRanges(); sl.addRange(r);
+  };
+  const eliminaImg = () => {
+    const fig = imgFig.current; if(!fig) return;
+    fig.remove(); lasciaImg(); emit(true);
+  };
+  const ritagliaImg = () => {
+    const fig = imgFig.current; const im = fig && fig.querySelector('img'); if(!im) return;
+    setRitaglio({src: im.src});
+  };
+  const applicaRitaglio = (nuova) => {
+    const fig = imgFig.current; const im = fig && fig.querySelector('img');
+    setRitaglio(null);
+    if(!im || !nuova) return;
+    im.src = nuova;
+    emit(true); setTimeout(()=>posizionaImg(fig), 50);
+  };
   const [modo,setModo] = useState('sel');      // 'sel' = sopra le celle · 'edit' = dentro la cella
   const selRef = useRef([]);                   // celle selezionate
   const attivaRef = useRef(null);              // ancora: da dove parte la selezione
@@ -4515,6 +4688,7 @@ function RichText({value, onChange, placeholder, docKey}){
 
   return (
     <div>
+      {ritaglio && <ModalRitaglio src={ritaglio.src} onClose={()=>setRitaglio(null)} onApply={applicaRitaglio}/>}
       {schizzo && (
         <div className="overlay" onMouseDown={e=>{ if(e.target===e.currentTarget && confirm('Chiudere senza inserire il disegno?')) setSchizzo(null); }}>
           <div className="modal modal-schizzo">
@@ -4884,9 +5058,38 @@ function RichText({value, onChange, placeholder, docKey}){
         </div>
       )}
 
+      {imgBox && (<>
+        <div className="img-cornice" style={{top:imgBox.top, left:imgBox.left, width:imgBox.w, height:imgBox.h}}></div>
+        <div className="rt-ctx img-ctx" style={{top:imgBox.bt, left:imgBox.bl}} onMouseDown={e=>e.preventDefault()}>
+          {(()=>{ const fig = imgFig.current; const cl = fig ? fig.classList : {contains:()=>false};
+            const al = cl.contains('img-sx') ? 'img-sx' : cl.contains('img-dx') ? 'img-dx' : cl.contains('img-flt-sx') ? 'img-flt-sx' : cl.contains('img-flt-dx') ? 'img-flt-dx' : '';
+            const d = fig ? dimImg(fig) : 0;
+            return (<>
+              <span className="img-ctx-et">Posizione</span>
+              <button className={al==='img-sx'?'on':''} onClick={()=>allineaImg('img-sx')} title="A sinistra">⇤</button>
+              <button className={al===''?'on':''} onClick={()=>allineaImg('')} title="Al centro">↔</button>
+              <button className={al==='img-dx'?'on':''} onClick={()=>allineaImg('img-dx')} title="A destra">⇥</button>
+              <button className={al==='img-flt-sx'?'on':''} onClick={()=>allineaImg('img-flt-sx')} title="A sinistra con il testo che le scorre a fianco">▧ testo a destra</button>
+              <button className={al==='img-flt-dx'?'on':''} onClick={()=>allineaImg('img-flt-dx')} title="A destra con il testo che le scorre a fianco">testo a sinistra ▨</button>
+              <span className="sep"></span>
+              <span className="img-ctx-et">Dimensione</span>
+              {[25,50,75,100].map(p=><button key={p} className={d===p?'on':''} onClick={()=>misuraImg(p)}>{p}%</button>)}
+              <button className={!d?'on':''} onClick={()=>misuraImg(0)} title="Dimensione originale (al massimo la larghezza della pagina)">auto</button>
+              <span className="sep"></span>
+              <button onClick={ritagliaImg} title="Ritaglia la foto">✂ Ritaglia</button>
+              <button onClick={didascaliaImg} title="Scrivi una didascalia sotto la foto">Didascalia</button>
+              <button className="del" onClick={eliminaImg}>elimina</button>
+            </>); })()}
+        </div>
+      </>)}
       <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning
         onMouseDown={e=>{
           clearTimeout(pennelloTimer.current);
+          // clic su una foto (non su un disegno): la scelgo e compare la sua barra
+          if(e.target.tagName === 'IMG' && !e.target.closest('figure.schizzo') && !e.target.closest('td,th')){
+            e.preventDefault(); scegliImg(e.target); return;
+          }
+          lasciaImg();
           // Ctrl/Cmd + selezione: la selezione di prima resta e se ne aggiunge un'altra
           if(e.button === 0 && !(e.target.closest && e.target.closest('td,th'))){
             if((e.ctrlKey || e.metaKey) && !e.shiftKey){
@@ -4971,13 +5174,20 @@ function RichText({value, onChange, placeholder, docKey}){
           if(td && ref.current.contains(td)){ e.preventDefault(); entraInModifica(td); }
         }}
         data-ph={placeholder||'Scrivi qui…'}
-        onInput={()=>{ svuotaAltreSel(); if(numPop) setNumPop(null); emit(); }}
+        onInput={()=>{ svuotaAltreSel(); lasciaImg(); if(numPop) setNumPop(null); emit(); }}
         onKeyDown={e=>{
           // copia formato: Alt+O carica il pennello, Ctrl/Cmd+Maiusc+C copia, +V applica
           if(e.altKey && (e.key === 'o' || e.key === 'O' || e.code === 'KeyO')){
             e.preventDefault(); pennelloDaTasto(); return;
           }
           if(e.key === 'Escape' && fmtTPresoRef.current){ e.preventDefault(); spegniPennello(); return; }
+          // Ctrl/Cmd + B, I, U passano dagli stessi comandi dei pulsanti (valgono anche sulle selezioni multiple)
+          if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[biu]$/i.test(e.key || '') && !(cellaCorrente() && !window.getSelection().toString())){
+            e.preventDefault();
+            const k = e.key.toLowerCase();
+            cmd(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline');
+            return;
+          }
           if((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'v' || e.key === 'V' || e.code === 'KeyV')){
             e.preventDefault();                       // incolla senza formato
             if(navigator.clipboard && navigator.clipboard.readText){
