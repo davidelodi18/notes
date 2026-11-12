@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "12 nov 2026 · maiuscola automatica dopo il punto";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "12 nov 2026 · tipo del documento modificabile";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -7290,6 +7290,20 @@ function App(){
                   <option key={r.id} value={r.id}>{r.nome}</option>,
                   ...figlieDi(r.id).map(f=><option key={f.id} value={f.id}>{'\u00a0\u00a0\u00a0'}↳ {f.nome}</option>)
                 ])}
+              </select>
+            </div>
+            <div className="f">
+              <label>Tipo</label>
+              <select value={doc.tipo||'nota'} onChange={e=>{
+                // cambio tipo in corsa: non si perde niente, i campi dell'altro tipo restano salvati e tornano se ci ripensi
+                const t = e.target.value, p = {tipo:t};
+                if(t === 'riunione'){ if(!doc.stato) p.stato = 'da preparare'; if(!doc.data) p.data = today(); }
+                if(t === 'disegno' && !doc.disegno) p.disegno = {tratti:[], h:1414, sfondo:'bianco'};
+                patchDoc(p);
+              }}>
+                <option value="nota">Appunto</option>
+                <option value="riunione">Riunione</option>
+                <option value="disegno">Disegno</option>
               </select>
             </div>
             <div className="f"><label>Data</label>
