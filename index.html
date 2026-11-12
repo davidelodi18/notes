@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "12 nov 2026 · Ctrl+B sistemato e impostazioni delle foto";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "12 nov 2026 · maiuscola automatica dopo il punto";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -5082,7 +5082,7 @@ function RichText({value, onChange, placeholder, docKey}){
             </>); })()}
         </div>
       </>)}
-      <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning
+      <div ref={ref} className={'rt'+(modo==='sel'?' modo-sel':'')+(fmtTPreso?' col-pennello':'')} contentEditable suppressContentEditableWarning autoCapitalize="sentences"
         onMouseDown={e=>{
           clearTimeout(pennelloTimer.current);
           // clic su una foto (non su un disegno): la scelgo e compare la sua barra
@@ -5181,6 +5181,27 @@ function RichText({value, onChange, placeholder, docKey}){
             e.preventDefault(); pennelloDaTasto(); return;
           }
           if(e.key === 'Escape' && fmtTPresoRef.current){ e.preventDefault(); spegniPennello(); return; }
+          // maiuscola automatica: dopo un punto (o ! ?) e uno spazio, la prima lettera diventa maiuscola
+          if(!e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && e.key && e.key.length === 1 && e.key !== e.key.toUpperCase() && e.key.toLowerCase() === e.key){
+            const sl = window.getSelection();
+            if(sl && sl.rangeCount && sl.isCollapsed && ref.current.contains(sl.anchorNode)){
+              const r0 = sl.getRangeAt(0);
+              let bl = sl.anchorNode.nodeType === 1 ? sl.anchorNode : sl.anchorNode.parentElement;
+              bl = (bl && bl.closest && bl.closest('p,div,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,figcaption,pre')) || ref.current;
+              if(!ref.current.contains(bl)) bl = ref.current;
+              if(!bl.closest('pre,code')){
+                const rr = document.createRange(); rr.setStart(bl, 0); rr.setEnd(r0.startContainer, r0.startOffset);
+                const prima = rr.toString().slice(-40);
+                const m = prima.match(/(\S*?)([.!?])[\s\u00a0]+$/);
+                const ABBR = /^(es|ecc|etc|pag|pagg|sig|sigg|dott|dott\.ssa|ing|avv|prof|geom|rag|arch|n|nr|art|cap|cfr|tel|ca|vs|p|pp|s|ss|fig|tab|vol|ad|ex|ns|vs|rif|doc|sez|par|min|max)$/i;
+                if(m && !(m[2] === '.' && (ABBR.test(m[1].replace(/^[(\["'«]+/, '')) || /\.$/.test(m[1])))){
+                  e.preventDefault();
+                  document.execCommand('insertText', false, e.key.toUpperCase());
+                  return;
+                }
+              }
+            }
+          }
           // Ctrl/Cmd + B, I, U passano dagli stessi comandi dei pulsanti (valgono anche sulle selezioni multiple)
           if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[biu]$/i.test(e.key || '') && !(cellaCorrente() && !window.getSelection().toString())){
             e.preventDefault();
