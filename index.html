@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "16 nov 2026 · collegamenti tra documenti (anche ai fogli Excel)";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "16 nov 2026 · raggruppa: un titolo grande tiene insieme i sottotitoli";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -2526,9 +2526,26 @@ function RichText({value, onChange, placeholder, docKey}){
     while((n = w.nextNode())){ if(!n.textContent.trim()) continue; if(!eGrassetto(getComputedStyle(n.parentElement).fontWeight)){ tutto = false; break; } }
     return tutto && el.textContent.trim() === el.textContent.trim().toUpperCase();
   };
+  /* quanto "pesa" un titolo: la dimensione più grande del suo testo (H1-H4 contano di più) */
+  const pesoTitolo = (el) => {
+    let max = 0;
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
+    while((n = w.nextNode())){ if(!n.textContent.trim()) continue; max = Math.max(max, parseFloat(getComputedStyle(n.parentElement).fontSize) || 0); }
+    if(/^H[1-4]$/.test(el.tagName)) max += 10 - parseInt(el.tagName[1], 10);
+    return max;
+  };
   const raggruppaPerTitoli = (bl) => {
     const titoli = bl.filter(eTitolo);
     if(titoli.length < 2) return false;
+    /* la selezione parte da un titolo più grande degli altri (es. "TO DO LIST" e sotto "DATA ENTRY"):
+       è un gruppo solo, i titoli più piccoli restano dentro come sottotitoli */
+    if(titoli[0] === bl.find(x=>!eBloccoVuoto(x))){
+      const p0 = pesoTitolo(titoli[0]);
+      const altri = Math.max(...titoli.slice(1).map(pesoTitolo));
+      if(p0 > altri + 0.5) return false;
+      const nome = titoli[0].textContent.replace(/\s+/g,' ').trim();
+      if(!confirm('Nella selezione ci sono ' + titoli.length + ' titoli.\n\nOK = un gruppo per ogni titolo\nAnnulla = tutto in un gruppo solo, sotto "' + nome + '"')) return false;
+    }
     const ultimo = bl[bl.length - 1];
     let fatti = 0;
     titoli.forEach((t, i)=>{
