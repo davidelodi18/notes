@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "16 nov 2026 · nuovo tipo di documento: Excel a tutta pagina";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "16 nov 2026 · collegamenti tra documenti (anche ai fogli Excel)";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -473,6 +473,10 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
   .xl-barra .btn{padding:3px 8px;font-size:12px}
 }
 .tag.xl{background:#e2f0e6;color:#1d6b3c}
+.rt a.link-doc{display:inline-block;padding:0 7px;margin:0 1px;border-radius:5px;background:#e6f1ea;color:#1d5a3a;text-decoration:none;
+  border:1px solid #c9ded2;cursor:pointer;font-size:.95em;line-height:1.5;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:baseline}
+.rt a.link-doc:hover{background:#d5eadc}
+.rt a.link-doc.manca{background:#f5ecec;color:#9a4b45;border-color:#e6cfcd;text-decoration:line-through}
 .rt-ctx.tbl-dock{position:fixed;top:auto;bottom:10px;z-index:30;box-shadow:0 6px 24px rgba(23,33,29,.22)}
 .rt-ctx.tbl-mini{width:auto !important;flex-wrap:nowrap}
 .rt-ctx .tbl-mini-btn{background:transparent;color:var(--muted);padding:4px 6px}
@@ -1405,6 +1409,30 @@ function normalizzaNumero(txt){
   if(!/^\d*\.?\d+$/.test(t)) return null;
   return (neg ? '-' : '') + t;
 }
+/* ═══ collegamenti tra documenti ═══
+   <a data-doc="id" class="link-doc"> dentro il testo: il titolo si aggiorna da solo quando apri il documento */
+const ICONA_TIPO = {excel:'📊', riunione:'👥', disegno:'✏️', nota:'📄'};
+const htmlLinkDoc = (d, testo) => {
+  const e = x => String(x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const proprio = testo && testo.trim() ? ' data-testo="1"' : '';
+  const et = testo && testo.trim() ? testo.trim() : (d.titolo || 'Senza titolo');
+  return `<a href="#doc=${e(d.id)}" data-doc="${e(d.id)}" class="link-doc"${proprio} contenteditable="false">${ICONA_TIPO[d.tipo] || '📄'} ${e(et)}</a>`;
+};
+const aggiornaLinkDoc = (radice) => {
+  if(!radice || typeof window.qInfoDoc !== 'function') return false;
+  let cambiato = false;
+  radice.querySelectorAll('a[data-doc]').forEach(a=>{
+    const d = window.qInfoDoc(a.getAttribute('data-doc'));
+    const via = !d || d.cestinato;
+    if(a.classList.contains('manca') !== via){ a.classList.toggle('manca', via); cambiato = true; }
+    if(!d || a.getAttribute('data-testo')) return;
+    const giusto = (ICONA_TIPO[d.tipo] || '📄') + ' ' + (d.titolo || 'Senza titolo');
+    if(a.textContent !== giusto){ a.textContent = giusto; cambiato = true; }
+    if(a.getAttribute('contenteditable') !== 'false'){ a.setAttribute('contenteditable','false'); cambiato = true; }
+  });
+  return cambiato;
+};
+
 function leggiNumero(txt){
   const t = normalizzaNumero(txt);
   if(t === null) return null;
@@ -1613,7 +1641,8 @@ function RichText({value, onChange, placeholder, docKey}){
     setTimeout(()=>{ try{
       if(docNelDom.current !== docKey) return;
       const a = pulisciStiliDoppi(), b = srotolaContenitori(), c = sistemaGruppi(), d = sistemaVociSciolte(), f = rigaSottoGruppi();
-      if(a || b || c || d || f) emit(true);
+      const g = aggiornaLinkDoc(ref.current);
+      if(a || b || c || d || f || g) emit(true);
     }catch(err){} }, 50);
     puliscoSel(); setModo('sel'); applicaModo('sel'); setInTable(false); setTblBox(null);
     /* la cronologia di ogni foglio resta da parte quando si cambia documento: rientrando si può
@@ -4763,6 +4792,15 @@ function RichText({value, onChange, placeholder, docKey}){
     setBusy('');
   };
 
+  /* collegamento a un altro documento del quaderno (anche a un foglio Excel): si sceglie dall'elenco */
+  const addLinkDoc = () => {
+    salvaRange();
+    window.dispatchEvent(new CustomEvent('q-scegli-doc', {detail:{ quando: (d) => {
+      ref.current.focus(); ripristinaRange();
+      const testo = (window.getSelection() && window.getSelection().toString()) || '';
+      cmd('insertHTML', htmlLinkDoc(d, testo) + '&nbsp;');
+    }}}));
+  };
   const addLink = () => {
     const sel = window.getSelection();
     const testo = sel && sel.toString();
@@ -5009,6 +5047,7 @@ function RichText({value, onChange, placeholder, docKey}){
             <button onClick={pickImage} title="Inserisci foto">🖼</button>
             <button onClick={()=>apriSchizzo()} title="Disegna nel testo (doppio clic su un disegno per modificarlo)">✏️</button>
             <button onClick={addLink} title="Collegamento (anche a un video)">🔗</button>
+            <button onClick={addLinkDoc} title="Collegamento a un altro documento del quaderno, anche a un foglio Excel">📎 Documento</button>
           </>)}
         </div>
         )}
@@ -5248,6 +5287,18 @@ function RichText({value, onChange, placeholder, docKey}){
           if(td && ref.current.contains(td) && (e.ctrlKey || modo === 'sel')) e.preventDefault();
         }}
         onClick={e=>{
+          // collegamento a un documento del quaderno: un tocco lo apre
+          const ld = e.target.closest && e.target.closest('a[data-doc]');
+          if(ld && ref.current.contains(ld)){
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('q-apri-doc', {detail:{id: ld.getAttribute('data-doc'), da: docKey}}));
+            return;
+          }
+          // collegamento normale: con Ctrl/Cmd (o sul telefono con un tocco) si apre in un'altra scheda
+          const ln = e.target.closest && e.target.closest('a[href]');
+          if(ln && ref.current.contains(ln) && (e.ctrlKey || e.metaKey || telefono) && /^https?:/i.test(ln.getAttribute('href') || '')){
+            e.preventDefault(); window.open(ln.href, '_blank', 'noopener'); return;
+          }
           const t = e.target.closest && e.target.closest('.grp-t');
           if(t && e.nativeEvent.offsetX < 24){
             t.parentNode.classList.toggle('chiuso');
@@ -5993,27 +6044,27 @@ function StoricoModal({doc, onRipristina, onClose}){
 }
 
 /* ═══════════ scegli il documento in cui mettere un pezzo di foglio Excel ═══════════ */
-function ScegliDocModal({documenti, sezioni, esclusoId, onScegli, onClose}){
+function ScegliDocModal({documenti, sezioni, esclusoId, onScegli, onClose, titolo, spiega, pulsante, tutti}){
   const [q, setQ] = useState('');
   const lista = Object.values(documenti)
-    .filter(d=>d.id !== esclusoId && d.tipo !== 'excel' && !d.cestinato && !d.archiviato)
+    .filter(d=>d.id !== esclusoId && (tutti || d.tipo !== 'excel') && !d.cestinato && !d.archiviato)
     .filter(d=>!q.trim() || (d.titolo || '').toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a,b)=>(b.aggiornato || '').localeCompare(a.aggiornato || ''))
     .slice(0, 60);
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
       <div className="modal" style={{maxWidth:480}}>
-        <h3>In quale documento la metto?</h3>
-        <p className="spazio-sub" style={{marginTop:-6}}>Le celle scelte vanno in fondo al documento come tabella (la prima riga fa da intestazione).</p>
+        <h3>{titolo || 'In quale documento la metto?'}</h3>
+        <p className="spazio-sub" style={{marginTop:-6}}>{spiega || 'Le celle scelte vanno in fondo al documento come tabella (la prima riga fa da intestazione).'}</p>
         <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Cerca un documento…" style={{width:'100%', marginBottom:8}}/>
         <div style={{maxHeight:'46vh', overflowY:'auto'}}>
           {lista.map(d=>(
             <div className="top-doc" key={d.id} style={{cursor:'pointer'}} onClick={()=>onScegli(d.id)}>
               <div style={{flex:1, minWidth:0}}>
-                <div style={{fontSize:13.5}}>{d.titolo || 'Senza titolo'}</div>
-                <div className="src">{sezioni[d.sezioneId] ? sezioni[d.sezioneId].nome : ''}</div>
+                <div style={{fontSize:13.5}}>{tutti ? (ICONA_TIPO[d.tipo] || '📄') + ' ' : ''}{d.titolo || 'Senza titolo'}</div>
+                <div className="src">{sezioni[d.sezioneId] ? sezioni[d.sezioneId].nome : ''}{d.tipo === 'excel' ? ' · Excel' : ''}</div>
               </div>
-              <button className="btn sm">Metti qui</button>
+              <button className="btn sm">{pulsante || 'Metti qui'}</button>
             </div>
           ))}
           {!lista.length && <div className="empty">Nessun documento trovato.</div>}
@@ -6339,7 +6390,7 @@ const excelDaTabella = (tabHtml) => {
   return JSON.stringify([sh]);
 };
 
-function ExcelFoglio({doc, onSalva, onTitolo, onChiudi, onCopiaInDoc, onMenu, salvato}){
+function ExcelFoglio({doc, onSalva, onTitolo, onChiudi, onCopiaInDoc, onMenu, salvato, indietro}){
   const [lib, setLib] = useState(()=> window.react && window.react.Workbook ? window.react : null);
   const [errore, setErrore] = useState('');
   const [rev, setRev] = useState(0);
@@ -6409,7 +6460,8 @@ function ExcelFoglio({doc, onSalva, onTitolo, onChiudi, onCopiaInDoc, onMenu, sa
   return (
     <div className="xl-pagina">
       <div className="xl-barra">
-        <button className="btn ghost sm" onClick={()=>{ salva(); onChiudi(); }} title="Chiudi il foglio">← Indietro</button>
+        <button className="btn ghost sm" onClick={()=>{ salva(); onChiudi(); }} title={indietro ? 'Torna al documento da cui sei arrivato' : 'Chiudi il foglio'}
+          style={indietro ? {maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'} : undefined}>{indietro || '← Indietro'}</button>
         <input className="xl-titolo" value={doc.titolo || ''} placeholder="Titolo del foglio" onChange={e=>onTitolo(e.target.value)}/>
         <span className="saved">{salvato}</span>
         <span className="spacer"></span>
@@ -7081,6 +7133,8 @@ function App(){
   const [modalFmt,setModalFmt] = useState(false);
   const [modalStorico,setModalStorico] = useState(false);
   const [copiaExcel,setCopiaExcel] = useState(null);     // tabella presa da un foglio Excel, da mettere in un documento
+  const [sceltaLink,setSceltaLink] = useState(null);     // {quando}: sto scegliendo il documento da collegare
+  const [provenienza,setProvenienza] = useState(null);   // documento da cui sono arrivato con un collegamento
   const [anteprima,setAnteprima] = useState(false);
   const [odgCopiato,setOdgCopiato] = useState('');
 
@@ -7397,6 +7451,30 @@ function App(){
     bodyTimer.current = setTimeout(salvaCorpo, 700);
   };
 
+  /* collegamenti tra documenti */
+  window.qInfoDoc = (id) => documentiRef.current[id] || null;
+  const versoLink = useRef(null);
+  useEffect(()=>{
+    const scegli = (e) => { if(e.detail && e.detail.quando) setSceltaLink({quando: e.detail.quando}); };
+    const apri = (e) => {
+      const id = e.detail && e.detail.id; const d = id && documentiRef.current[id];
+      if(!d){ alert('Il documento collegato non c\'è più.'); return; }
+      if(d.cestinato && !confirm('Il documento collegato è nel cestino. Aprirlo lo stesso?')) return;
+      versoLink.current = id;
+      setProvenienza(e.detail.da || null);
+      setSelDoc(id); setMobileView('doc');
+    };
+    window.addEventListener('q-scegli-doc', scegli); window.addEventListener('q-apri-doc', apri);
+    return ()=>{ window.removeEventListener('q-scegli-doc', scegli); window.removeEventListener('q-apri-doc', apri); };
+  },[]);
+  // se cambio documento in un altro modo, il "torna a…" non serve più
+  useEffect(()=>{ if(selDoc !== versoLink.current){ setProvenienza(null); versoLink.current = null; } },[selDoc]);
+  const tornaIndietro = () => {
+    const p = provenienza && documentiRef.current[provenienza] ? provenienza : null;
+    if(p){ versoLink.current = null; setSelDoc(p); setMobileView('doc'); }
+    return !!p;
+  };
+
   /* il foglio Excel: salvato sul documento da cui arriva */
   const onExcel = (id, s) => {
     const d = documentiRef.current[id];
@@ -7627,7 +7705,8 @@ function App(){
     if(doc.tipo === 'excel') return (
       <ExcelFoglio doc={doc} salvato={salvato} onSalva={onExcel}
         onTitolo={t=>patchDoc({titolo:t})}
-        onChiudi={()=>{ setSelDoc(null); setMobileView('nav'); }}
+        indietro={provenienza && documenti[provenienza] ? '← ' + (documenti[provenienza].titolo || 'Indietro') : null}
+        onChiudi={()=>{ if(!tornaIndietro()){ setSelDoc(null); setMobileView('nav'); } }}
         onCopiaInDoc={tab=>setCopiaExcel(tab)}
         onMenu={
           <div className="doc-menu" onClick={e=>e.stopPropagation()}>
@@ -7660,6 +7739,10 @@ function App(){
       <>
         <div className="doc-bar">
           <button className="btn ghost sm mobile-back" onClick={()=>setMobileView('nav')}>← Elenco</button>
+          {provenienza && documenti[provenienza] && (
+            <button className="btn ghost sm" onClick={tornaIndietro} title="Torna al documento da cui sei arrivato"
+              style={{maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>← {documenti[provenienza].titolo || 'Indietro'}</button>
+          )}
           {isMeet && (
             <select className="btn sm" value={doc.stato} onChange={e=>patchDoc({stato:e.target.value})}>
               <option>da preparare</option><option>preparata</option><option>svolta</option>
@@ -8253,6 +8336,13 @@ function App(){
       {anteprima && doc && <AnteprimaStampa doc={doc} sezione={sezioni[doc.sezioneId]} fmt={fmt}
         onClose={()=>setAnteprima(false)}
         onSave={(st, resta)=>{ patchDoc({stampa: st}); if(!resta) setAnteprima(false); }}/>}
+      {sceltaLink && (
+        <ScegliDocModal tutti documenti={documenti} sezioni={sezioni} esclusoId={doc && doc.id}
+          titolo="Collega un documento" pulsante="Collega"
+          spiega="Nel testo compare un pulsantino con il titolo: un tocco e si apre (anche i fogli Excel)."
+          onClose={()=>setSceltaLink(null)}
+          onScegli={(id)=>{ const d = documentiRef.current[id]; const f = sceltaLink.quando; setSceltaLink(null); if(d) setTimeout(()=>f(d), 30); }}/>
+      )}
       {copiaExcel && (
         <ScegliDocModal documenti={documenti} sezioni={sezioni} esclusoId={doc && doc.id}
           onClose={()=>setCopiaExcel(null)}
