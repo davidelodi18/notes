@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "17 nov 2026 · menu ⋯ con elimina (anche nei fogli Excel)";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "17 nov 2026 · cartelle dentro le cartelle, menu ⋯ con elimina";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -128,6 +128,9 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .riga-cart .tri{width:11px;flex:none;color:var(--muted);font-size:10px}
 /* le voci della cartella: righe piene dentro un pannello unico, senza rientri né spazi ai lati */
 .gruppo-cart.aperta > .riga-cart{border-bottom:1px solid var(--line-soft)}
+.cart-sotto{padding:6px 6px 0 14px;background:#fafbfa;border-bottom:1px solid var(--line-soft)}
+.gruppo-cart.sotto{margin-bottom:6px}
+.gruppo-cart.sotto .riga-cart{padding:8px 10px}
 .gruppo-cart .riga-cart{border-radius:0}
 .card.dentro{margin:0;width:100%;border:0;border-radius:0;border-bottom:1px solid var(--line-soft);
   background:var(--paper);padding:9px 34px 9px 32px;box-shadow:none}
@@ -5623,18 +5626,19 @@ function ActionRow({a, onChange, onRemove, sub, mv, onEnter, autofocus}){
 }
 
 /* ═══════════ modale sezione ═══════════ */
-function SectionModal({sezione, onSave, onDelete, onClose, count, radici, parentIniziale, figlieDi}){
+function SectionModal({sezione, onSave, onDelete, onClose, count, radici, parentIniziale, figlieDi, albero, ramoDi}){
   const [nome,setNome] = useState(sezione?sezione.nome:'');
   const [descrizione,setDescrizione] = useState(sezione?sezione.descrizione||'':'');
   const [colore,setColore] = useState(sezione?sezione.colore:COLORS[0]);
   const [parentId,setParentId] = useState(sezione ? (sezione.parentId||'') : (parentIniziale||''));
   const nuovo = !sezione;
   const haFiglie = sezione ? figlieDi(sezione.id).length > 0 : false;
-  const possibili = (radici||[]).filter(r=>!sezione || r.id !== sezione.id);
+  const fuori = sezione ? ramoDi(sezione.id) : [];          // non si mette dentro se stessa né dentro le sue cartelle
+  const possibili = (albero||[]).filter(x=>fuori.indexOf(x.s.id) < 0);
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
       <div className="modal">
-        <h3>{nuovo?'Nuova sezione':'Modifica sezione'}</h3>
+        <h3>{nuovo ? (parentIniziale ? 'Nuova cartella' : 'Nuova sezione') : (sezione.parentId ? 'Modifica cartella' : 'Modifica sezione')}</h3>
         <div className="f">
           <label>Nome</label>
           <input autoFocus value={nome} onChange={e=>setNome(e.target.value)} placeholder="Es. Controlling, Budget 2027, Commerciale"
@@ -5646,12 +5650,12 @@ function SectionModal({sezione, onSave, onDelete, onClose, count, radici, parent
         </div>
         <div className="f">
           <label>Dentro</label>
-          <select value={parentId} onChange={e=>setParentId(e.target.value)} disabled={haFiglie}>
+          <select value={parentId} onChange={e=>setParentId(e.target.value)}>
             <option value="">— Sezione principale —</option>
-            {possibili.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}
+            {possibili.map(x=><option key={x.s.id} value={x.s.id}>{'\u00a0\u00a0\u00a0'.repeat(x.liv)}{x.liv ? '↳ ' : ''}{x.s.nome}</option>)}
           </select>
           {haFiglie && <div className="spazio-sub" style={{marginTop:4}}>
-            Questa sezione contiene delle sottosezioni, quindi resta principale.
+            Le cartelle che ha dentro si spostano insieme a lei.
           </div>}
         </div>
         <div className="f">
@@ -6101,29 +6105,20 @@ function ScegliDocModal({documenti, sezioni, esclusoId, onScegli, onClose, titol
 }
 
 /* ═══════════ sposta i documenti ═══════════ */
-function SpostaModal({quanti, radici, figlieDi, correnteId, onSposta, onClose}){
+function SpostaModal({quanti, albero, correnteId, onSposta, onClose}){
   return (
     <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget) onClose();}}>
       <div className="modal" style={{maxWidth:440}}>
         <h3>{quanti === 1 ? 'Sposta il documento' : `Sposta ${quanti} documenti`}</h3>
         <div style={{maxHeight:'50vh', overflowY:'auto', marginTop:6}}>
-          {radici.map(r=>(
-            <div key={r.id}>
-              <button className={'dest'+(r.id===correnteId?' qui':'')} disabled={r.id===correnteId}
-                onClick={()=>onSposta(r.id)}>
-                <span className="chip" style={{background:r.colore}}></span>
-                {r.nome}
-                {r.id===correnteId && <span className="qui-t">qui</span>}
-              </button>
-              {figlieDi(r.id).map(f=>(
-                <button key={f.id} className={'dest figlia'+(f.id===correnteId?' qui':'')} disabled={f.id===correnteId}
-                  onClick={()=>onSposta(f.id)}>
-                  <span className="ic" style={{color:f.colore}}>▣</span>
-                  {f.nome}
-                  {f.id===correnteId && <span className="qui-t">qui</span>}
-                </button>
-              ))}
-            </div>
+          {albero.map(({s: r, liv})=>(
+            <button key={r.id} className={'dest'+(liv?' figlia':'')+(r.id===correnteId?' qui':'')} disabled={r.id===correnteId}
+              style={liv ? {paddingLeft: 12 + liv * 18} : undefined}
+              onClick={()=>onSposta(r.id)}>
+              {liv ? <span className="ic" style={{color:r.colore}}>▣</span> : <span className="chip" style={{background:r.colore}}></span>}
+              {r.nome}
+              {r.id===correnteId && <span className="qui-t">qui</span>}
+            </button>
           ))}
         </div>
         <div className="modal-foot"><button className="btn" onClick={onClose}>Annulla</button></div>
@@ -7294,7 +7289,20 @@ function App(){
     .sort((a,b)=>(a.ordine||0)-(b.ordine||0)),[sezioni]);
   const radici = useMemo(()=>sezList.filter(s=>!s.parentId),[sezList]);
   const figlieDi = useCallback((id)=>sezList.filter(s=>s.parentId===id),[sezList]);
-  const ramoDi = useCallback((id)=>[id, ...sezList.filter(s=>s.parentId===id).map(s=>s.id)],[sezList]);
+  /* cartelle dentro le cartelle: il ramo è la sezione con tutto quello che sta sotto, a qualsiasi livello */
+  const ramoDi = useCallback((id)=>{
+    const out = [], visti = {};
+    const giu = (x) => { if(visti[x]) return; visti[x] = 1; out.push(x); sezList.forEach(s=>{ if(s.parentId === x) giu(s.id); }); };
+    giu(id);
+    return out;
+  },[sezList]);
+  /* tutte le sezioni e cartelle in ordine di albero, con il livello (0 = sezione principale) */
+  const albero = useMemo(()=>{
+    const out = [], visti = {};
+    const giu = (s, liv) => { if(visti[s.id]) return; visti[s.id] = 1; out.push({s, liv}); sezList.filter(x=>x.parentId === s.id).forEach(x=>giu(x, liv + 1)); };
+    sezList.filter(s=>!s.parentId || !sezioni[s.parentId] || sezioni[s.parentId].cestinata).forEach(s=>giu(s, 0));
+    return out;
+  },[sezList, sezioni]);
   const [chiuse,setChiuse] = useState(()=> local.get('quaderno:sezChiuse') || {});
   const [cartella,setCartella] = useState(null);   // cartella dove nascono i nuovi documenti
   const [aperte,setAperte] = useState(()=> local.get('quaderno:cartAperte') || {});
@@ -7303,6 +7311,81 @@ function App(){
     local.set('quaderno:cartAperte', n);
     return n;
   });
+  /* una cartella dell'elenco, con dentro le sue cartelle (a qualsiasi livello) e i suoi documenti */
+  const cartellaAlbero = (f, liv) => {
+            const dentro = Object.values(documenti)
+              .filter(d=>d.sezioneId===f.id && !d.cestinato && !d.archiviato)
+              .sort((a,b)=>((b.data||b.creato||'').localeCompare(a.data||a.creato||'')));
+            const espansa = !!aperte[f.id];
+            const sotto = figlieDi(f.id);
+            const nRamo = countRamo(f.id), todoR = todoRamo(f.id);
+            return (
+              <div key={f.id} className={'gruppo-cart'+(espansa?' aperta':'')+(liv?' sotto':'')} style={{borderLeft:'3px solid '+f.colore}}>
+                <button className={'riga-cart'+(dragSu===f.id?' drop':'')} style={{background: tinta(f.colore, espansa ? 0.09 : 0.055)}}
+                  onClick={()=>apriChiudi(f.id)}
+                  onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
+                  onDragLeave={()=>setDragSu(null)}
+                  onDrop={e=>{
+                    e.preventDefault();
+                    const ids = e.dataTransfer.getData('text/plain').split(',').filter(Boolean);
+                    ids.forEach(id=>spostaDoc(id, f.id));
+                    setDragSu(null); setScelti([]);
+                    setAperte(p=>({...p,[f.id]:true}));
+                  }}>
+                  <span className="tri">{espansa ? '▾' : '▸'}</span>
+                  <span className="ic" style={{color:f.colore}}>▣</span>
+                  <span className="t">{f.nome}</span>
+                  {todoR > 0 &&
+                    <span className="q todo" title="cose ancora da fare in questa cartella">{todoR}</span>}
+                  <span className="q">{nRamo || ''}</span>
+                  <span className="ed" title="Nuova cartella qui dentro"
+                    onClick={e=>{e.stopPropagation(); setModalSez({sezione:null, parent:f.id});}}>＋▣</span>
+                  <span className="ed" title="Nuovo documento qui"
+                    onClick={e=>{e.stopPropagation(); setCartella(f.id); setAperte(p=>({...p,[f.id]:true})); setModalNew(true);}}>＋</span>
+                  <span className="ed" title="Rinomina"
+                    onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
+                </button>
+                {espansa && sotto.length > 0 && (
+                  <div className="cart-sotto">{sotto.map(x=>cartellaAlbero(x, liv + 1))}</div>
+                )}
+                {espansa && dentro.length === 0 && sotto.length === 0 && (
+                  <div className="cart-vuota">Nessun documento — trascinane uno qui</div>
+                )}
+                {espansa && dentro.map(d=>{
+                  const aperteAz = daFare(d);
+                  return (
+                    <button key={d.id} className={'card dentro'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
+                      draggable
+                      onDragStart={e=>{
+                        const ids = scelti.indexOf(d.id)>=0 ? scelti : [d.id];
+                        e.dataTransfer.setData('text/plain', ids.join(','));
+                        e.dataTransfer.effectAllowed='move';
+                      }}
+                      onClick={e=>{
+                        if(selMulti || e.ctrlKey || e.metaKey){
+                          if(!selMulti) setSelMulti(true);
+                          setScelti(p=> p.indexOf(d.id)>=0 ? p.filter(x=>x!==d.id) : [...p, d.id]);
+                          return;
+                        }
+                        setSelDoc(d.id); setMobileView('doc');
+                      }}>
+                      {selMulti && <span className={'segno'+(scelti.indexOf(d.id)>=0?' on':'')}>✓</span>}
+                      <div className="t">{d.titolo||'Senza titolo'}</div>
+                      <div className="m">
+                        {d.data && <span>{fmtDate(d.data)}</span>}
+                        {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
+                        {d.tipo==='excel' && <span className="tag xl">Excel</span>}
+                        {d.tipo==='disegno' && <span className="tag draw">disegno</span>}
+                        {aperteAz>0 && <span className="tag todo">{aperteAz} da fare</span>}
+                      </div>
+                      <span className="card-menu" title="Sposta, archivia, elimina"
+                        onClick={e=>{e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCardMenu({id:d.id, x:r.right, y:r.bottom});}}>⋯</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+  };
   const [dragSu,setDragSu] = useState(null);       // dove sto trascinando
   const [selMulti,setSelMulti] = useState(false);  // modalità "scegli più documenti"
   const [scelti,setScelti] = useState([]);         // id dei documenti scelti
@@ -7840,10 +7923,7 @@ function App(){
             <div className="f">
               <label>Sezione</label>
               <select value={doc.sezioneId} onChange={e=>patchDoc({sezioneId:e.target.value})}>
-                {radici.map(r=>[
-                  <option key={r.id} value={r.id}>{r.nome}</option>,
-                  ...figlieDi(r.id).map(f=><option key={f.id} value={f.id}>{'\u00a0\u00a0\u00a0'}↳ {f.nome}</option>)
-                ])}
+                {albero.map(x=><option key={x.s.id} value={x.s.id}>{'\u00a0\u00a0\u00a0'.repeat(x.liv)}{x.liv ? '↳ ' : ''}{x.s.nome}</option>)}
               </select>
             </div>
             <div className="f">
@@ -8181,73 +8261,7 @@ function App(){
         </div>
         )}
         <div className="list">
-          {!q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && selSez!=='CESTINO' && selSez!=='ARCHIVIO' && figlieDi(selSez).map(f=>{
-            const dentro = Object.values(documenti)
-              .filter(d=>d.sezioneId===f.id && !d.cestinato && !d.archiviato)
-              .sort((a,b)=>((b.data||b.creato||'').localeCompare(a.data||a.creato||'')));
-            const espansa = !!aperte[f.id];
-            return (
-              <div key={f.id} className={'gruppo-cart'+(espansa?' aperta':'')} style={{borderLeft:'3px solid '+f.colore}}>
-                <button className={'riga-cart'+(dragSu===f.id?' drop':'')} style={{background: tinta(f.colore, espansa ? 0.09 : 0.055)}}
-                  onClick={()=>apriChiudi(f.id)}
-                  onDragOver={e=>{e.preventDefault(); setDragSu(f.id);}}
-                  onDragLeave={()=>setDragSu(null)}
-                  onDrop={e=>{
-                    e.preventDefault();
-                    const ids = e.dataTransfer.getData('text/plain').split(',').filter(Boolean);
-                    ids.forEach(id=>spostaDoc(id, f.id));
-                    setDragSu(null); setScelti([]);
-                    setAperte(p=>({...p,[f.id]:true}));
-                  }}>
-                  <span className="tri">{espansa ? '▾' : '▸'}</span>
-                  <span className="ic" style={{color:f.colore}}>▣</span>
-                  <span className="t">{f.nome}</span>
-                  {dentro.reduce((n,d)=>n+daFare(d),0) > 0 &&
-                    <span className="q todo" title="cose ancora da fare in questa cartella">{dentro.reduce((n,d)=>n+daFare(d),0)}</span>}
-                  <span className="q">{dentro.length || ''}</span>
-                  <span className="ed" title="Nuovo documento qui"
-                    onClick={e=>{e.stopPropagation(); setCartella(f.id); setAperte(p=>({...p,[f.id]:true})); setModalNew(true);}}>＋</span>
-                  <span className="ed" title="Rinomina"
-                    onClick={e=>{e.stopPropagation(); setModalSez({sezione:f});}}>✎</span>
-                </button>
-                {espansa && dentro.length === 0 && (
-                  <div className="cart-vuota">Nessun documento — trascinane uno qui</div>
-                )}
-                {espansa && dentro.map(d=>{
-                  const aperteAz = daFare(d);
-                  return (
-                    <button key={d.id} className={'card dentro'+(selDoc===d.id?' on':'')+(scelti.indexOf(d.id)>=0?' scelto':'')}
-                      draggable
-                      onDragStart={e=>{
-                        const ids = scelti.indexOf(d.id)>=0 ? scelti : [d.id];
-                        e.dataTransfer.setData('text/plain', ids.join(','));
-                        e.dataTransfer.effectAllowed='move';
-                      }}
-                      onClick={e=>{
-                        if(selMulti || e.ctrlKey || e.metaKey){
-                          if(!selMulti) setSelMulti(true);
-                          setScelti(p=> p.indexOf(d.id)>=0 ? p.filter(x=>x!==d.id) : [...p, d.id]);
-                          return;
-                        }
-                        setSelDoc(d.id); setMobileView('doc');
-                      }}>
-                      {selMulti && <span className={'segno'+(scelti.indexOf(d.id)>=0?' on':'')}>✓</span>}
-                      <div className="t">{d.titolo||'Senza titolo'}</div>
-                      <div className="m">
-                        {d.data && <span>{fmtDate(d.data)}</span>}
-                        {d.tipo==='riunione' && <span className="tag meet">{d.stato||'riunione'}</span>}
-                        {d.tipo==='excel' && <span className="tag xl">Excel</span>}
-                        {d.tipo==='disegno' && <span className="tag draw">disegno</span>}
-                        {aperteAz>0 && <span className="tag todo">{aperteAz} da fare</span>}
-                      </div>
-                      <span className="card-menu" title="Sposta, archivia, elimina"
-                        onClick={e=>{e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCardMenu({id:d.id, x:r.right, y:r.bottom});}}>⋯</span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
+          {!q.trim() && selSez && selSez!=='ATTIVITA' && selSez!=='SPAZIO' && selSez!=='CESTINO' && selSez!=='ARCHIVIO' && figlieDi(selSez).map(f=>cartellaAlbero(f, 0))}
           {docList.length===0 && !figlieDi(selSez||'').length && (
             <div className="empty">
               <strong>{q.trim()?'Nessun risultato'
@@ -8317,12 +8331,17 @@ function App(){
           sezione={modalSez.sezione}
           radici={radici}
           figlieDi={figlieDi}
+          albero={albero} ramoDi={ramoDi}
           parentIniziale={modalSez.parent}
           count={modalSez.sezione? countRamo(modalSez.sezione.id) : 0}
           onClose={()=>setModalSez(null)}
           onSave={vals=>{
             if(modalSez.sezione){ saveSez(modalSez.sezione.id, {...modalSez.sezione, ...vals}); }
-            else { const id=uid(); saveSez(id,{id,...vals,ordine:sezList.length}); setSelSez(id); }
+            else {
+              const id=uid(); saveSez(id,{id,...vals,ordine:sezList.length});
+              if(!vals.parentId) setSelSez(id);
+              else setAperte(p=>{ const n = {...p, [vals.parentId]: true}; local.set('quaderno:cartAperte', n); return n; });   // la cartella madre si apre
+            }
             setModalSez(null);
           }}
           onDelete={()=>{
@@ -8379,8 +8398,8 @@ function App(){
         );
       })()}
       {modalSposta && (
-        <SpostaModal quanti={modalSposta.ids.length} radici={radici} figlieDi={figlieDi}
-          correnteId={cartella || selSez}
+        <SpostaModal quanti={modalSposta.ids.length} albero={albero}
+          correnteId={modalSposta.ids.length === 1 && documenti[modalSposta.ids[0]] ? documenti[modalSposta.ids[0]].sezioneId : (cartella || selSez)}
           onClose={()=>setModalSposta(null)}
           onSposta={(destId)=>{
             modalSposta.ids.forEach(id=>spostaDoc(id, destId));
