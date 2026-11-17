@@ -32,7 +32,7 @@ window.FIREBASE_CONFIG = {
   appId: "1:885722046999:web:3167f76826a9e735633252"
 };
 window.DB_ROOT = "quaderno";   // ramo del Realtime Database
-window.APP_VER = "16 nov 2026 · raggruppa: un titolo grande tiene insieme i sottotitoli";   // versione, mostrata in fondo alla barra laterale
+window.APP_VER = "17 nov 2026 · menu ⋯ con elimina (anche nei fogli Excel)";   // versione, mostrata in fondo alla barra laterale
 window.AUTH_EMAIL = "davide.lodi18@gmail.com";  // email precompilata al login
 </script>
 
@@ -645,6 +645,14 @@ input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 .doc-menu-pop button{display:block;width:100%;text-align:left;border:0;background:none;padding:11px 14px}
 .doc-menu-pop button:hover{background:var(--line-soft)}
 .doc-menu-pop button.danger{color:var(--red)}
+.xl-barra{position:relative;z-index:5}
+.xl-barra .doc-menu{display:inline-block}
+.xl-barra .doc-menu-pop{z-index:1000}
+.card-pop{position:fixed;z-index:60;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:0 8px 24px rgba(23,33,29,.18);min-width:170px;overflow:hidden}
+.card-pop button{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 14px;font-size:13.5px;cursor:pointer}
+.card-pop button:hover{background:var(--line-soft)}
+.card-pop button.danger{color:var(--red)}
 
 @media(max-width:900px){
   html{-webkit-text-size-adjust:100%}
@@ -7299,6 +7307,13 @@ function App(){
   const [selMulti,setSelMulti] = useState(false);  // modalità "scegli più documenti"
   const [scelti,setScelti] = useState([]);         // id dei documenti scelti
   const [modalSposta,setModalSposta] = useState(null);
+  const [cardMenu,setCardMenu] = useState(null);         // {id,x,y}: menu ⋯ di un documento nell'elenco
+  useEffect(()=>{
+    if(!cardMenu) return;
+    const via = () => setCardMenu(null);
+    window.addEventListener('click', via); window.addEventListener('scroll', via, true); window.addEventListener('resize', via);
+    return ()=>{ window.removeEventListener('click', via); window.removeEventListener('scroll', via, true); window.removeEventListener('resize', via); };
+  },[cardMenu]);
   const alterna = (id) => setChiuse(p=>{ const n={...p, [id]: !p[id]}; local.set('quaderno:sezChiuse', n); return n; });
   const docList = useMemo(()=>{
     let l = Object.values(documenti);
@@ -8225,8 +8240,8 @@ function App(){
                         {d.tipo==='disegno' && <span className="tag draw">disegno</span>}
                         {aperteAz>0 && <span className="tag todo">{aperteAz} da fare</span>}
                       </div>
-                      <span className="card-menu" title="Sposta"
-                        onClick={e=>{e.stopPropagation(); setModalSposta({ids:[d.id]});}}>⋯</span>
+                      <span className="card-menu" title="Sposta, archivia, elimina"
+                        onClick={e=>{e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCardMenu({id:d.id, x:r.right, y:r.bottom});}}>⋯</span>
                     </button>
                   );
                 })}
@@ -8281,8 +8296,8 @@ function App(){
                 {(d.cestinato || d.archiviato) &&
                   <span className="card-az" title="Rimettilo al suo posto"
                     onClick={e=>{e.stopPropagation(); ripristinaDoc(d.id);}}>↩ ripristina</span>}
-                <span className="card-menu" title="Sposta"
-                  onClick={e=>{e.stopPropagation(); setModalSposta({ids:[d.id]});}}>⋯</span>
+                <span className="card-menu" title="Sposta, archivia, elimina"
+                  onClick={e=>{e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCardMenu({id:d.id, x:r.right, y:r.bottom});}}>⋯</span>
               </button>
             );
           })}
@@ -8341,6 +8356,28 @@ function App(){
       )}
       {bloccato && bloccoCfg() && <SchermoBlocco cfg={bloccoCfg()} onSblocca={()=>setBloccato(false)}
         onPassword={()=>{ local.set(BLOCCO_KEY, null); setBloccato(false); if(HAS_FB) fbAuth.signOut(); }}/>}
+      {cardMenu && documenti[cardMenu.id] && (()=>{
+        const d = documenti[cardMenu.id];
+        const nome = d.titolo || 'documento senza titolo';
+        const left = Math.max(8, Math.min(cardMenu.x - 180, window.innerWidth - 190));
+        const top = Math.min(cardMenu.y + 4, window.innerHeight - 200);
+        return (
+          <div className="card-pop" style={{left, top}} onClick={e=>e.stopPropagation()}>
+            <button onClick={()=>{ setCardMenu(null); setModalSposta({ids:[d.id]}); }}>Sposta in…</button>
+            {d.cestinato
+              ? <button onClick={()=>{ setCardMenu(null); ripristinaDoc(d.id); }}>Ripristina</button>
+              : <button onClick={()=>{ setCardMenu(null); archiviaDoc(d.id, !d.archiviato); }}>{d.archiviato ? 'Togli dall\'archivio' : 'Archivia'}</button>}
+            <button className="danger" onClick={()=>{
+              setCardMenu(null);
+              if(d.cestinato){
+                if(confirm(`Eliminare "${nome}" per sempre? Non si torna indietro.`)){ eliminaDavvero(d.id); if(selDoc === d.id) setSelDoc(null); }
+              } else if(confirm(`Mettere "${nome}" nel cestino? Resta lì ${GIORNI_CESTINO} giorni, poi sparisce da solo.`)){
+                cestinaDoc(d.id); if(selDoc === d.id) setSelDoc(null);
+              }
+            }}>{d.cestinato ? 'Elimina per sempre' : 'Elimina'}</button>
+          </div>
+        );
+      })()}
       {modalSposta && (
         <SpostaModal quanti={modalSposta.ids.length} radici={radici} figlieDi={figlieDi}
           correnteId={cartella || selSez}
